@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os
 import sys
 import subprocess
@@ -7,13 +8,27 @@ import threading
 import shutil
 import signal
 import psutil
+import cv2
+import time
+import math
+import av
+import re
+
+from enum import Enum
+class ProcState(Enum):
+    STOP    = 0
+    EXTRACT = 1
+    ENHANCE = 2
+    MERGE   = 3
 
 class VideoEnhancerApp:
     def __init__(self, root):
+        self.proc_state = ProcState.STOP
+        
         self.root = root
         self.root.title("Real-ESRGAN 视频画质增强工具")
-        self.root.geometry("800x700")  # 增大窗口尺寸以容纳注释
-        self.root.minsize(800, 700)    # 设置最小尺寸
+        self.root.geometry("800x900")  # 增大窗口尺寸以容纳注释
+        self.root.minsize(800, 900)    # 设置最小尺寸
         self.root.resizable(True, True)
         
         # 获取项目根目录
@@ -33,6 +48,10 @@ class VideoEnhancerApp:
         
         # 绑定模型选择事件
         self.model_var.trace('w', self.on_model_change)
+        self.step_var.trace('w', self.on_step_change)
+        self.video_path_var.trace('w', self.on_path_video_change)
+
+        self.on_timer_enhance()
         
     def create_widgets(self):
         # 标题
@@ -53,67 +72,186 @@ class VideoEnhancerApp:
         
         tk.Button(file_frame, text="浏览", command=self.browse_video).pack(side=tk.RIGHT, padx=(5, 0))
         
+        # 视频输出选择框
+        video_out_frame = tk.Frame(self.root)
+        video_out_frame.pack(fill=tk.X, padx=20, pady=5)
+        
+        tk.Label(video_out_frame, text="选择输出目录:").pack(anchor=tk.W)
+        
+        file_frame = tk.Frame(video_out_frame)
+        file_frame.pack(fill=tk.X, pady=5)
+        
+        self.video_out_var = tk.StringVar()
+        tk.Entry(file_frame, textvariable=self.video_out_var, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        tk.Button(file_frame, text="浏览", command=self.browse_video_out).pack(side=tk.RIGHT, padx=(5, 0))
+        
         # 参数设置框
-        params_frame = tk.LabelFrame(self.root, text="增强参数")
-        params_frame.pack(fill=tk.X, padx=20, pady=10)
+        self.params_frame = tk.LabelFrame(self.root, text="增强参数", )
+        self.params_frame.pack(fill=tk.X, padx=20, pady=10)
+        self.params_frame.bind("<Button-1>", self.on_click_params_frame)
         
         # 模型选择
-        model_frame = tk.Frame(params_frame)
+        model_frame = tk.Frame(self.params_frame)
         model_frame.pack(fill=tk.X, padx=10, pady=5)
         
         tk.Label(model_frame, text="增强模型:").pack(side=tk.LEFT)
         
         self.model_var = tk.StringVar(value="realesr-animevideov3")
-        model_combo = ttk.Combobox(model_frame, textvariable=self.model_var, 
+        self.model_combo = ttk.Combobox(model_frame, textvariable=self.model_var, 
                                   values=["realesr-animevideov3", "realesrgan-x4plus", "realesrgan-x4plus-anime"],
                                   state="readonly", width=25)
-        model_combo.pack(side=tk.RIGHT)
+        self.model_combo.pack(side=tk.RIGHT)
         
         # 模型用途说明
-        model_description_frame = tk.Frame(params_frame)
-        model_description_frame.pack(fill=tk.X, padx=10, pady=(0, 5))
-        
-        self.model_description_label = tk.Label(model_description_frame, text="realesr-animevideov3 - 通用动漫视频增强模型", 
+        self.model_description_label = tk.Label(model_frame, text="通用动漫视频增强模型", 
                                                font=("Arial", 8), fg="gray", wraplength=700, justify="left")
-        self.model_description_label.pack(anchor=tk.W)
+        self.model_description_label.pack(anchor=tk.W, side=tk.RIGHT)
         
-                # 缩放因子
-        scale_frame = tk.Frame(params_frame)
+        # 缩放因子
+        scale_frame = tk.Frame(self.params_frame)
         scale_frame.pack(fill=tk.X, padx=10, pady=5)
         
         tk.Label(scale_frame, text="缩放因子:").pack(side=tk.LEFT)
         
-        self.scale_var = tk.StringVar(value="2")
+        self.scale_var = tk.StringVar(value="4")
         self.scale_combo = ttk.Combobox(scale_frame, textvariable=self.scale_var,
                                        values=["2", "3", "4"],
                                        state="readonly", width=25)
         self.scale_combo.pack(side=tk.RIGHT)
-        
+
         # 输出格式
-        format_frame = tk.Frame(params_frame)
+        format_frame = tk.Frame(self.params_frame)
         format_frame.pack(fill=tk.X, padx=10, pady=5)
         
         tk.Label(format_frame, text="输出格式:").pack(side=tk.LEFT)
         
-        self.format_var = tk.StringVar(value="jpg")
-        format_combo = ttk.Combobox(format_frame, textvariable=self.format_var,
+        self.format_var = tk.StringVar(value="png")
+        self.format_combo = ttk.Combobox(format_frame, textvariable=self.format_var,
                                    values=["jpg", "png"],
                                    state="readonly", width=25)
-        format_combo.pack(side=tk.RIGHT)
+        self.format_combo.pack(side=tk.RIGHT)
+
+        # level
+        level_frame = tk.Frame(self.params_frame)
+        level_frame.pack(fill=tk.X, padx=10, pady=5)
         
-        # 进度条
-        self.progress_var = tk.DoubleVar()
-        self.progress_bar = ttk.Progressbar(self.root, variable=self.progress_var, maximum=100)
-        self.progress_bar.pack(fill=tk.X, padx=20, pady=10)
+        tk.Label(level_frame, text="level:").pack(side=tk.LEFT)
         
-        # 进度百分比标签
-        self.progress_label = tk.Label(self.root, text="0%")
-        self.progress_label.pack()
+        self.level_var = tk.StringVar(value="30")
+        self.level_combo = ttk.Combobox(level_frame, textvariable=self.level_var,
+                                   values=["30", "31", "40", "41", "42", "50", "51", "52"],
+                                   state="readonly", width=25)
+        self.level_combo.pack(side=tk.RIGHT)
+
+        # tile-size
+        tile_size_frame = tk.Frame(self.params_frame)
+        tile_size_frame.pack(fill=tk.X, padx=10, pady=5)
         
-        # 状态标签
-        self.status_var = tk.StringVar(value="就绪")
-        self.status_label = tk.Label(self.root, textvariable=self.status_var, fg="blue")
-        self.status_label.pack(pady=5)
+        tk.Label(tile_size_frame, text="tile-size:").pack(side=tk.LEFT)
+        
+        self.tile_size_var = tk.StringVar(value="512")
+        self.tile_size_combo = ttk.Combobox(tile_size_frame, textvariable=self.tile_size_var,
+                                   values=["default", "32", "64", "96", "128", "160", "192", "256", "288", "320", "352", "384", "416", "448", "480", "512"],
+                                   state="readonly", width=25)
+        self.tile_size_combo.pack(side=tk.RIGHT)
+
+
+        # thread count for load/proc/save
+        thread_count_frame = tk.Frame(self.params_frame)
+        thread_count_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        tk.Label(thread_count_frame, text="thread count for load/proc/save:").pack(side=tk.LEFT)
+        
+        self.thread_count_var = tk.StringVar(value="6:12:16")
+        self.thread_count_combo = ttk.Combobox(thread_count_frame, textvariable=self.thread_count_var,
+                                   values=["default", "2:2:2", "4:4:4", "6:12:14"],
+                                   state="readonly", width=25)
+        self.thread_count_combo.pack(side=tk.RIGHT)
+
+        # b:v
+        bit_rate_frame = tk.Frame(self.params_frame)
+        bit_rate_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        tk.Label(bit_rate_frame, text="b:v").pack(side=tk.LEFT)
+        
+        self.bit_rate_var = tk.StringVar(value="45M")
+        self.bit_rate_combo = ttk.Combobox(bit_rate_frame, textvariable=self.bit_rate_var,
+                                   values=["10M","15M","20M","25M","30M","35M","40M","45M","50M","55M","60M","65M","70M","75M","80M",],
+                                   state="readonly", width=25)
+        self.bit_rate_combo.pack(side=tk.RIGHT)
+
+        # max rate
+        max_rate_frame = tk.Frame(self.params_frame)
+        max_rate_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        tk.Label(max_rate_frame, text="max rate").pack(side=tk.LEFT)
+        
+        self.max_rate_var = tk.StringVar(value="55M")
+        self.max_rate_combo = ttk.Combobox(max_rate_frame, textvariable=self.max_rate_var,
+                                   values=["10M","15M","20M","25M","30M","35M","40M","45M","50M","55M","60M","65M","70M","75M","80M",],
+                                   state="readonly", width=25)
+        self.max_rate_combo.pack(side=tk.RIGHT)
+
+        # tta mode
+        # tta_mode_frame = tk.Frame(self.params_frame)
+        # tta_mode_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        # tk.Label(tta_mode_frame, text="tta mode:").pack(side=tk.LEFT)
+        
+        # self.tta_mode_var = tk.StringVar(value="disable")
+        # self.tta_mode_combo = ttk.Combobox(tta_mode_frame, textvariable=self.tta_mode_var,
+        #                            values=["enable", "disable"],
+        #                            state="readonly", width=25)
+        # self.tta_mode_combo.pack(side=tk.RIGHT)
+        # vls = self.tta_mode_combo.cget("values")
+        # self.log(">>>>> vls", vls, vls.index("disadbwle"))
+
+        # 强制fps
+        fps_force_frame = tk.Frame(self.params_frame)
+        fps_force_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        tk.Label(fps_force_frame, text="fps force:").pack(side=tk.LEFT)
+        
+        self.fps_force_var = tk.DoubleVar(value=0)
+        self.fps_force_spin = ttk.Spinbox(fps_force_frame, textvariable=self.fps_force_var,
+                                    from_=0, to=100, increment=1, width=25)
+        self.fps_force_spin.pack(side=tk.RIGHT)
+
+        # 执行步骤
+        step_frame = tk.Frame(self.params_frame)
+        step_frame.pack(fill=tk.X, padx=10, pady=5)
+        tk.Label(step_frame, text="执行步骤:").pack(side=tk.LEFT)
+        
+        self.step_var = tk.StringVar(value="all")
+        self.step_combo = ttk.Combobox(step_frame, textvariable=self.step_var, 
+                                  values=[
+                                      "all",        # 提取帧 -> 增强帧 -> 合并帧
+                                      "extract",    # 提取帧
+                                      "enhance",    # 增强帧
+                                      "merge",      # 合并帧
+                                    ],
+                                  state="readonly", width=25)
+        self.step_combo.pack(side=tk.RIGHT)
+
+        # 执行步骤说明
+        self.step_description_label = tk.Label(step_frame, text="提取帧 -> 增强帧 -> 合并帧", 
+                                               font=("Arial", 8), fg="gray", wraplength=700, justify="left")
+        self.step_description_label.pack(anchor=tk.W, side=tk.RIGHT)
+        
+        # # 进度条
+        # self.progress_var = tk.DoubleVar()
+        # self.progress_bar = ttk.Progressbar(self.root, variable=self.progress_var, maximum=100)
+        # self.progress_bar.pack(fill=tk.X, padx=20, pady=10)
+        
+        # # 进度百分比标签
+        # self.progress_label = tk.Label(self.root, text="0%")
+        # self.progress_label.pack()
+        
+        # # 状态标签
+        # self.status_var = tk.StringVar(value="就绪")
+        # self.status_label = tk.Label(self.root, textvariable=self.status_var, fg="blue")
+        # self.status_label.pack(pady=5)
         
         # 日志框
         log_frame = tk.LabelFrame(self.root, text="运行日志")
@@ -123,17 +261,17 @@ class VideoEnhancerApp:
         self.log_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
         # 日志操作按钮
-        log_button_frame = tk.Frame(log_frame)
-        log_button_frame.pack(fill=tk.X, padx=5, pady=5)
+        # log_button_frame = tk.Frame(log_frame)
+        # log_button_frame.pack(fill=tk.X, padx=5, pady=5)
         
-        tk.Button(log_button_frame, text="清空日志", command=self.clear_log).pack(side=tk.LEFT)
-        tk.Button(log_button_frame, text="复制日志", command=self.copy_log).pack(side=tk.LEFT, padx=5)
+        # tk.Button(log_button_frame, text="清空日志", command=self.clear_log).pack(side=tk.RIGHT)
+        # tk.Button(log_button_frame, text="复制日志", command=self.copy_log).pack(side=tk.RIGHT, padx=5)
         
         # 控制按钮
         button_frame = tk.Frame(self.root)
         button_frame.pack(pady=20)
         
-        self.start_button = tk.Button(button_frame, text="开始增强", command=self.start_enhancement, 
+        self.start_button = tk.Button(button_frame, text="执行", command=self.start_enhancement, 
                                      bg="#4CAF50", fg="white", font=("Arial", 10, "bold"),
                                      padx=20)
         self.start_button.pack(side=tk.LEFT, padx=10)
@@ -146,11 +284,31 @@ class VideoEnhancerApp:
         """初始化必要的路径"""
         self.tmp_frames_dir = os.path.join(self.project_root, "tmp_frames")
         self.out_frames_dir = os.path.join(self.project_root, "out_frames")
+        self.log_dir = os.path.join(self.project_root, "log")
         
         # 创建必要的目录
         os.makedirs(self.tmp_frames_dir, exist_ok=True)
         os.makedirs(self.out_frames_dir, exist_ok=True)
+        os.makedirs(self.log_dir, exist_ok=True)
+
+        # 创建日志文件
+        self.log_path = os.path.join(self.log_dir, time.strftime("%Y-%m-%d", time.localtime()) + ".log")
+        self.log_file = open(self.log_path, "a+", encoding="utf-8")
         
+    def on_timer_enhance(self):
+        self.log_text.after(60000, lambda: self.on_timer_enhance())
+        if self.proc_state != ProcState.ENHANCE:
+            return
+        
+        files = os.listdir(self.out_frames_dir)
+        count = len(files)
+        total_frames = int(self.video_info.get("extract_frames") or 1)
+        percent = (count/total_frames)*100
+        self.log(f"frames enhanced: {percent:03.02f}% - {count}/{total_frames}")
+
+    def on_click_params_frame(self, *args):
+        self.params_frame.configure(height=1)
+
     def on_model_change(self, *args):
         """当模型选择改变时的处理函数"""
         selected_model = self.model_var.get()
@@ -163,7 +321,7 @@ class VideoEnhancerApp:
         }
         
         description = model_descriptions.get(selected_model, "")
-        self.model_description_label.config(text=f"{selected_model} - {description}")
+        self.model_description_label.config(text=description)
         
         if selected_model in ["realesrgan-x4plus", "realesrgan-x4plus-anime"]:
             # 固定缩放因子为4
@@ -173,6 +331,415 @@ class VideoEnhancerApp:
         else:
             # 启用缩放因子选择
             self.scale_combo.config(state="readonly")
+
+    def on_step_change(self, *args):
+        """当模型选择改变时的处理函数"""
+        step = self.step_var.get()
+        text = ""
+        if step == "all":
+            text = "提取帧 -> 增强帧 -> 合并帧"
+        elif step == "extract":
+            text = "提取帧"
+        elif step == "enhance":
+            text = "增强帧"
+        elif step == "merge":
+            text = "合并帧"
+
+        self.step_description_label.config(text=text)
+
+    def on_path_video_change(self, *args):
+        self.log("----------")
+        path = self.video_path_var.get()
+        if os.path.isdir(path):
+            self.video_out_var.set(path)
+            return
+        elif not os.path.isfile(path):
+            return
+        
+        self.video_out_var.set(os.path.dirname(path))
+            
+        self.video_info = self.get_video_info(path)
+        self.log(f"video_path: {path}")
+        self.log(f"video_info: {self.video_info }")
+        # self.log(f"frame_rate: {self.detect_video_framerate(path)}")
+        # self.log(f"count_decoded_frames: {self.count_decoded_frames(path)}")
+
+        # self.check_vfr_with_ffmpeg(path)
+        # self.log(f"analyze_vfr_pyav: {self.analyze_vfr_pyav(path)}")
+
+        level = self.cal_video_level(self.video_info )
+        level = level and str(int(float(level) * 10))
+        self.log(f"level: {level}")
+
+        if level in self.level_combo.cget("values"):
+            self.level_var.set(level)
+        
+        # ffprobe -v quiet -select_streams v:0 -show_entries frame=best_effort_timestamp_time -of csv=p=0 input_video.mp4 > timestamps.txt
+        # cmd = [
+        #     os.path.join(self.project_root, "ffprobe.exe"),
+        #     "-v", "quiet",
+        #     '-hwaccel', 'cuda',           # 启用CUDA硬件加速
+        #     "-select_streams", "v:0",
+        #     # "-show_entries", "frame=best_effort_timestamp_time",
+        #     "-show_entries", "frame=n_frame,pkt_duration_time",
+        #     "-of", "csv=p=0",
+        #     self.video_path_var.get(),
+        # ]
+        # process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        # self.processes.append(process)
+        # stdout, stderr = process.communicate()
+        # self.log(f"cmd: {" ".join(cmd)}")
+        # self.log(f"VFR-stdout: {stdout.decode('utf-8', errors='ignore')}")
+        # self.log(f"VFR-stderr: {stderr.decode('utf-8', errors='ignore')}")
+
+    def detect_video_framerate(self, video_path, threshold_ms=5.0, sample_limit=None):
+        """
+        分析视频文件以确定它是恒定帧率 (CFR) 还是可变帧率 (VFR)。
+
+        Args:
+            video_path (str): 视频文件的路径。
+            threshold_ms (float): 判断VFR的阈值（毫秒）。帧间时间间隔的标准差超过此值，则认为是VFR。
+                                默认为 5.0 毫秒。
+            sample_limit (int, optional): 限制分析的帧数，用于加速大数据集的检查。默认为 None (分析所有帧)。
+
+        Returns:
+            dict: 包含分析结果的字典。
+                - 'is_vfr': (bool) True 表示 VFR, False 表示 CFR (或接近CFR)。
+                - 'std_dev_ms': (float) 帧间时间间隔的标准差（毫秒）。
+                - 'avg_interval_ms': (float) 平均帧间时间间隔（毫秒）。
+                - 'declared_avg_fps': (float or None) 视频元数据中声明的平均帧率。
+                - 'sampled_frames': (int) 实际采样的帧数。
+        """
+        try:
+            with av.open(video_path) as container:
+                # 获取第一个视频流
+                video_stream = next((s for s in container.streams if s.type == 'video'), None)
+                if not video_stream:
+                    raise ValueError("视频文件中未找到视频流。")
+
+                # 尝试获取元数据中的平均帧率（仅供参考，不一定准确）
+                declared_avg_fps = float(video_stream.average_rate) if video_stream.average_rate else None
+
+                # 存储解码后帧的时间戳 (PTS - Presentation Time Stamp)
+                pts_times_sec = []
+
+                for frame in container.decode(video_stream):
+                    # 使用 frame.pts * time_base 将 PTS 转换为以秒为单位的时间戳
+                    timestamp_sec = frame.pts * video_stream.time_base
+                    pts_times_sec.append(timestamp_sec)
+
+                    # 如果设置了采样限制，则达到数量后停止读取
+                    if sample_limit and len(pts_times_sec) >= sample_limit:
+                        break
+
+                if len(pts_times_sec) < 2:
+                    raise ValueError("视频帧数太少，无法进行分析。")
+
+                # 计算每帧之间的时间间隔（秒）
+                frame_intervals_sec = [pts_times_sec[i+1] - pts_times_sec[i] for i in range(len(pts_times_sec) - 1)]
+
+                sum_sec = sum(frame_intervals_sec)
+                len_frames = len(frame_intervals_sec)
+                # 计算平均时间间隔（秒）
+                avg_interval_sec = sum_sec / len_frames
+
+                # 计算时间间隔的标准差（秒）
+                variance = sum((x - avg_interval_sec) ** 2 for x in frame_intervals_sec) / len(frame_intervals_sec)
+                std_dev_sec = math.sqrt(variance)
+
+                # 转换为毫秒
+                std_dev_ms = std_dev_sec * 1000
+                avg_interval_ms = avg_interval_sec * 1000
+                
+                sampled_frames = len(pts_times_sec)
+
+                # 判断是否为 VFR
+                is_vfr = std_dev_ms > threshold_ms
+
+                return {
+                    "is_vfr": is_vfr,
+                    "std_dev_ms": std_dev_ms,
+                    "avg_interval_ms": avg_interval_ms,
+                    "declared_avg_fps": declared_avg_fps,
+                    "sampled_frames": sampled_frames,
+                    "sum_sec": float(sum_sec * 1000),
+                    "len_frames": len_frames,
+                }
+
+        except Exception as e:
+            self.log(f"分析视频时出错: {e}", file=sys.stderr)
+            return None
+        
+    def count_decoded_frames(self, video_path):
+        """
+        使用 PyAV 解码，并通过过滤重复的 PTS 来模拟 FFmpeg 的帧提取逻辑。
+        这通常会得到与 'ffmpeg -i input.mp4 %05d.png' 更接近的计数。
+        """
+        unique_pts_set = set()
+        frame_count = 0
+        
+        with av.open(video_path) as container:
+            video_stream = container.streams.video[0]
+            
+            # 重要：确保解码所有帧
+            video_stream.codec_context.skip_frame = 'NONE'
+
+            for packet in container.demux(video_stream):
+                for frame in packet.decode():
+                    # 计算该帧的显示时间戳（秒）
+                    pts_seconds = frame.pts * video_stream.time_base
+                    
+                    # 检查这个时间戳是否已经存在
+                    # 使用时间戳作为键，可以有效过滤掉重复显示的帧
+                    if pts_seconds not in unique_pts_set:
+                        unique_pts_set.add(pts_seconds)
+                        frame_count += 1
+                    # 如果时间戳已存在，则忽略此帧，因为它与前面某个帧是同一时刻显示的
+                        
+        return frame_count
+    
+    def get_ffmpeg_display_timestamps(self, video_path):
+        """
+        使用 FFmpeg 获取视频中每一帧的显示时间戳 (PTS)。
+        这些时间戳对应 FFmpeg 在处理或提取帧时看到的序列。
+        """
+        cmd = [
+            os.path.join(self.project_root, "ffmpeg.exe"),
+            '-i', video_path,
+            '-vf', 'showinfo',  # 应用 showinfo 过滤器
+            '-f', 'null',      # 不输出视频，丢弃数据
+            '-'                 # 输出到标准错误 (stderr)
+        ]
+        
+        try:
+            self.log(" ".join(cmd))
+            # 创建子进程并添加到进程列表
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self.processes.append(process)
+
+            _, stderr = process.communicate()
+            output = stderr.decode('utf-8', errors='ignore')
+            
+            self.log(f"output: {output}")
+            
+            # 使用正则表达式匹配 showinfo 输出中的 pts_time
+            # 格式类似: [Parsed_showinfo_0 @ 0x...] n:39 pts:1234.567 ...
+            pts_pattern = r"pts_time:(\d+\.?\d*)"
+            pts_times = [float(match) for match in re.findall(pts_pattern, output) if match != 'N/A']
+            
+            return pts_times
+
+        except subprocess.CalledProcessError as e:
+            self.log(f"FFmpeg 命令执行失败: {e}")
+            return None
+        except FileNotFoundError:
+            self.log("错误: 未找到 'ffmpeg' 命令。请确保 FFmpeg 已安装并添加到系统 PATH 中。")
+            return None
+        
+    def analyze_vfr_from_ffmpeg_ts(self, pts_times, threshold_ms=5.0):
+        """
+        基于 FFmpeg 提供的时间戳列表分析 VFR。
+        """
+        if not pts_times or len(pts_times) < 2:
+            self.log("错误: 时间戳数量不足，无法分析。")
+            return None
+
+        # 计算每帧之间的时间间隔（秒）
+        frame_intervals_sec = [pts_times[i+1] - pts_times[i] for i in range(len(pts_times) - 1)]
+
+        # 计算平均时间间隔和标准差（秒）
+        avg_interval_sec = sum(frame_intervals_sec) / len(frame_intervals_sec)
+        variance = sum((x - avg_interval_sec) ** 2 for x in frame_intervals_sec) / len(frame_intervals_sec)
+        std_dev_sec = math.sqrt(variance)
+
+        # 转换为毫秒
+        std_dev_ms = std_dev_sec * 1000
+        avg_interval_ms = avg_interval_sec * 1000
+        
+        sampled_frames = len(pts_times)
+
+        # 判断是否为 VFR
+        is_vfr = std_dev_ms > threshold_ms
+
+        return {
+            "is_vfr": is_vfr,
+            "std_dev_ms": std_dev_ms,
+            "avg_interval_ms": avg_interval_ms,
+            "sampled_frames": sampled_frames,
+            "calculated_fps": 1000 / avg_interval_ms if avg_interval_ms > 0 else 0
+        }
+    
+    def check_vfr_with_ffmpeg(self, video_path):
+        self.log("正在调用 FFmpeg 获取显示时间戳...")
+        ffmpeg_timestamps = self.get_ffmpeg_display_timestamps(video_path)
+
+        if ffmpeg_timestamps is not None:
+            self.log(f"成功获取 {len(ffmpeg_timestamps)} 个时间戳 (对应 FFmpeg 处理的帧数 {len(ffmpeg_timestamps)})")
+            
+            self.log("\n--- 基于 FFmpeg 时间戳的 VFR 分析 ---")
+            vfr_result = self.analyze_vfr_from_ffmpeg_ts(ffmpeg_timestamps, threshold_ms=5.0)
+
+            if vfr_result:
+                self.log(f"vfr_result: {vfr_result}")
+                self.log(f"采样帧数: {vfr_result['samp  led_frames']}")
+                self.log(f"计算得出平均FPS: {vfr_result['calculated_fps']:.2f}")
+                self.log(f"帧间隔标准差: {vfr_result['std_dev_ms']:.2f} ms")
+                self.log(f"平均帧间隔: {vfr_result['avg_interval_ms']:.2f} ms")
+                
+                if vfr_result['is_vfr']:
+                    self.log("\n🔍 结论: 视频是 **VFR (可变帧率)** (基于 FFmpeg 视角)")
+                else:
+                    self.log("\n🔍 结论: 视频是 **CFR (恒定帧率)** 或接近CFR (基于 FFmpeg 视角)")
+                self.log("------------------------------------")
+        else:
+            self.log("无法获取 FFmpeg 时间戳，分析失败。")
+
+    def analyze_vfr_pyav(self, video_path, threshold_ms=5.0, sample_limit=None):
+        """
+        使用 PyAV 分析视频的解码帧时间戳，判断其是否为 VFR。
+        这个方法判断的是视频文件本身的 VFR 特性。
+
+        Args:
+            video_path (str): 视频文件的路径。
+            threshold_ms (float): 判断VFR的阈值（毫秒）。帧间时间间隔的标准差超过此值，则认为是VFR。
+                                默认为 5.0 毫秒。
+            sample_limit (int, optional): 限制分析的帧数，用于加速大数据集的检查。默认为 None (分析所有帧)。
+
+        Returns:
+            dict: 包含分析结果的字典。
+                - 'is_vfr': (bool) True 表示 VFR, False 表示 CFR (或接近CFR)。
+                - 'std_dev_ms': (float) 帧间时间间隔的标准差（毫秒）。
+                - 'avg_interval_ms': (float) 平均帧间时间间隔（毫秒）。
+                - 'calculated_avg_fps': (float) 计算得出的平均帧率。
+                - 'sampled_frames': (int) 实际采样的帧数。
+                - 'declared_avg_fps': (float or None) 视频元数据中声明的平均帧率。
+        """
+        try:
+            with av.open(video_path) as container:
+                # 获取第一个视频流
+                video_stream = next((s for s in container.streams if s.type == 'video'), None)
+                if not video_stream:
+                    raise ValueError("视频文件中未找到视频流。")
+
+                # 获取元数据中的平均帧率（仅供参考）
+                declared_avg_fps = float(video_stream.average_rate) if video_stream.average_rate else None
+
+                pts_times_sec = []
+                
+                # 确保解码所有帧
+                # 注意：这里我们迭代的是解码后的帧对象
+                for frame in container.decode(video_stream):
+                    # 将 PTS (Presentation Time Stamp) 转换为秒
+                    timestamp_sec = frame.time_base * frame.pts
+                    if timestamp_sec is not None and timestamp_sec >= 0: # 确保时间戳有效
+                        pts_times_sec.append(timestamp_sec)
+
+                    # 如果设置了采样限制，则达到数量后停止读取
+                    if sample_limit and len(pts_times_sec) >= sample_limit:
+                        break
+
+                if len(pts_times_sec) < 2:
+                    raise ValueError("视频帧数太少，无法进行分析。")
+
+                # 计算每帧之间的时间间隔（秒）
+                frame_intervals_sec = [pts_times_sec[i+1] - pts_times_sec[i] for i in range(len(pts_times_sec) - 1)]
+
+                # 计算平均时间间隔（秒）
+                avg_interval_sec = sum(frame_intervals_sec) / len(frame_intervals_sec)
+
+                # 计算时间间隔的标准差（秒）
+                variance = sum((x - avg_interval_sec) ** 2 for x in frame_intervals_sec) / len(frame_intervals_sec)
+                std_dev_sec = math.sqrt(variance)
+
+                # 转换为毫秒
+                std_dev_ms = std_dev_sec * 1000
+                avg_interval_ms = avg_interval_sec * 1000
+                
+                calculated_avg_fps = 1000.0 / avg_interval_ms if avg_interval_ms > 0 else 0
+                sampled_frames = len(pts_times_sec)
+
+                # 判断是否为 VFR
+                is_vfr = std_dev_ms > threshold_ms
+
+                return {
+                    "is_vfr": is_vfr,
+                    "std_dev_ms": std_dev_ms,
+                    "avg_interval_ms": avg_interval_ms,
+                    "calculated_avg_fps": calculated_avg_fps,
+                    "sampled_frames": sampled_frames,
+                    "declared_avg_fps": declared_avg_fps
+                }
+
+        except Exception as e:
+            print(f"分析视频时出错: {e}", file=sys.stderr)
+            return None
+
+    def cal_video_level(self, info):
+        scale = int(self.scale_var.get())
+        height = info["height"] * scale
+        width = info["width"] * scale
+        fps = info["fps"]
+
+        """
+        根据分辨率和帧率计算满足要求的 H.264 最低 Level。
+
+        Args:
+            width (int): 视频宽度 (例如 1920)
+            height (int): 视频高度 (例如 1080)
+            fps (float): 视频帧率 (例如 30.0)
+
+        Returns:
+            str: 对应的 H.264 Level (例如 "4.0", "5.1") 或 None (如果超出支持范围)
+        """
+        
+        # H.264 Level 表 (Main/High Profile)
+        # Level: (MaxMBPS, MaxFS, MaxDPB, MaxBR_kbps)
+        # MaxMBPS: 最大宏块处理速率 (宏块/秒)
+        # MaxFS: 最大帧大小 (宏块) - 用于计算最大分辨率
+        # MaxDPB: 最大解码图片缓存 (宏块) - 对播放设备缓存有要求
+        # MaxBR_kbps: 最大比特率 (kbps) - 此处未使用，仅为完整性展示
+        
+        # 为了简化计算，我们主要关心 MaxMBPS 和 MaxFS
+        h264_levels = {
+            1: (1485, 99, 396, 64),
+            1.1: (3000, 396, 900, 192),
+            1.2: (6000, 396, 2376, 384),
+            1.3: (11880, 396, 2376, 768),
+            2: (11880, 396, 2376, 2000),
+            2.1: (19800, 792, 4752, 4000),
+            2.2: (20250, 1620, 8100, 4000),
+            3: (40500, 1620, 8100, 10000),
+            3.1: (108000, 3600, 18000, 14000),
+            3.2: (216000, 5120, 20480, 20000),
+            4: (245760, 8192, 32768, 20000),
+            4.1: (245760, 8192, 32768, 50000),
+            4.2: (522240, 8704, 34816, 50000),
+            5: (589824, 22080, 110400, 135000),
+            5.1: (983040, 36864, 184320, 240000),
+            5.2: (2228224, 36864, 184320, 240000),
+        }
+
+        # 1. 计算宏块数 (需要将宽高扩展到 16 的倍数)
+        padded_width = math.ceil(width / 16) * 16
+        padded_height = math.ceil(height / 16) * 16
+        
+        macroblocks_per_frame = (padded_width // 16) * (padded_height // 16)
+        
+        # 2. 计算宏块处理速率 (MaxMBPS)
+        max_mbps_required = macroblocks_per_frame * fps
+        
+        # 3. 查找满足 MaxMBPS 要求的最低 Level
+        # 4. 同时验证该 Level 的 MaxFS (最大帧大小) 限制
+        target_level = None
+        for level_name, (max_mbps, max_fs, _, _) in sorted(h264_levels.items()):
+            if max_mbps >= max_mbps_required:
+                # 检查分辨率是否也满足 MaxFS 限制
+                if macroblocks_per_frame <= max_fs:
+                    target_level = level_name
+                    break # 找到满足条件的第一个（最低）Level 即可
+
+        return str(target_level) if target_level is not None else None
+
             
     def exit_application(self):
         """退出应用程序并结束所有进程"""
@@ -208,6 +775,10 @@ class VideoEnhancerApp:
         except Exception as e:
             self.log(f"清理进程时出错: {e}")
         
+        if self.log_file:
+            self.log_file.close()
+            self.log_file = None
+
         # 退出应用
         self.root.quit()
         self.root.destroy()
@@ -228,8 +799,12 @@ class VideoEnhancerApp:
         self.log_text.see(tk.END)  # 滚动到最新日志
         
         # 更新状态标签
-        self.status_var.set(message)
+        # self.status_var.set(message)
         self.root.update()
+
+        if self.log_file:
+            self.log_file.write(log_message + "\n")
+            self.log_file.flush()
         
     def clear_log(self):
         """清空日志"""
@@ -244,6 +819,28 @@ class VideoEnhancerApp:
         self.root.clipboard_clear()
         self.root.clipboard_append(log_content)
         messagebox.showinfo("提示", "日志已复制到剪贴板")
+
+    def path_out_frames(self):
+        file = "frame%08d." + self.format_var.get()
+        return os.path.join(self.out_frames_dir, file)
+    
+    def path_video_out(self, video_path):
+        video_out_dir = self.video_out_var.get() or ""
+        if video_out_dir == "":
+            # 获取桌面路径
+            video_out_dir = os.path.join(os.path.expanduser("~"), "Desktop")
+        
+        # 获取原始文件名和扩展名
+        base_name = os.path.splitext(os.path.basename(video_path))[0]
+        ext = os.path.splitext(video_path)[1]
+        
+        # 生成带时间戳的文件名，确保唯一性
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_video_name = f"enhanced_{base_name}_{timestamp}{ext}"
+        output_video_path = os.path.join(video_out_dir, output_video_name)
+    
+        return output_video_path
         
     def browse_video(self):
         """浏览选择视频文件"""
@@ -252,12 +849,22 @@ class VideoEnhancerApp:
             filetypes=[
                 ("视频文件", "*.mp4 *.avi *.mkv *.mov *.wmv *.flv *.webm"),
                 ("所有文件", "*.*")
-            ]
+            ],
         )
         
         if file_path:
             self.video_path_var.set(file_path)
             
+    def browse_video_out(self):
+        """浏览选择视频输出目录"""
+        file_path = filedialog.askdirectory(
+            title="选择视频输出目录",
+            initialdir=self.video_out_var.get(),
+        )
+        
+        if file_path:
+            self.video_out_var.set(file_path)
+
     def get_video_fps(self, video_path):
         """获取视频的FPS"""
         try:
@@ -277,6 +884,8 @@ class VideoEnhancerApp:
             # ffmpeg的详细信息通常输出到stderr，所以我们需要检查stderr
             output = (stdout.decode('utf-8', errors='ignore') + 
                      stderr.decode('utf-8', errors='ignore'))
+            
+            self.log("output: " + output)
             
             # 查找FPS信息 - 改进的模式匹配
             import re
@@ -317,11 +926,38 @@ class VideoEnhancerApp:
         except Exception as e:
             self.log(f"获取帧率时出错: {e}，使用默认值 30 FPS")
             return 30.0
-            
+
+    def get_video_info(self, video_path):
+        cap = cv2.VideoCapture(video_path)
+
+        info = {}
+        info["file_size"] = os.path.getsize(video_path)
+        info["total_frames"] = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+        info["fps"] = cap.get(cv2.CAP_PROP_FPS)
+        info["height"] = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        info["width"] = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+
+        total_sec = info["total_frames"] / info["fps"]
+        info["total_sec"] = total_sec
+        hours = int(total_sec // 3600)
+        minutes = int((total_sec % 3600) // 60)
+        seconds = total_sec % 60  # 保留小数部分
+        info["time"] = f"{hours:02d}:{minutes:02d}:{seconds:02.3f}"
+    
+        cap.release()
+        return info
+    
+    def count_extract_frames(self):
+        return len(os.listdir(self.tmp_frames_dir))
+
+    def count_output_frames(self):
+        return len(os.listdir(self.out_frames_dir))
+
     def extract_frames(self, video_path):
         """从视频中提取帧"""
         try:
             self.log("正在提取视频帧...")
+            self.proc_state = ProcState.EXTRACT
             
             # 清空临时帧目录
             for file in os.listdir(self.tmp_frames_dir):
@@ -332,6 +968,7 @@ class VideoEnhancerApp:
             # 提取帧 - 使用更兼容的参数
             cmd = [
                 os.path.join(self.project_root, "ffmpeg.exe"),
+                '-hwaccel', 'cuda',           # 启用CUDA硬件加速
                 "-i", video_path,
                 "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",  # 确保宽高为偶数
                 "-q:v", "2",  # JPEG质量 (1-31, 1为最高质量)
@@ -339,6 +976,7 @@ class VideoEnhancerApp:
                 os.path.join(self.tmp_frames_dir, "frame%08d.jpg")
             ]
             
+            self.log(" ".join(cmd))
             self.log("执行帧提取命令...")
             # 创建子进程并添加到进程列表
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -347,13 +985,15 @@ class VideoEnhancerApp:
             _, stderr = process.communicate()
             if process.returncode != 0:
                 # 如果上面的方法失败，尝试基本参数
-                self.log("尝试备用帧提取方法...")
                 cmd = [
                     os.path.join(self.project_root, "ffmpeg.exe"),
                     "-i", video_path,
                     "-q:v", "2",
                     os.path.join(self.tmp_frames_dir, "frame%08d.jpg")
                 ]
+
+                self.log(" ".join(cmd))
+                self.log("尝试备用帧提取方法...")
                 
                 process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 self.processes.append(process)
@@ -362,7 +1002,7 @@ class VideoEnhancerApp:
                 if process.returncode != 0:
                     raise Exception(f"提取帧失败: {stderr.decode('utf-8', errors='ignore')}")
                 
-            self.log("视频帧提取完成")
+            self.log("视频帧提取完成, count_extract_frames: " + str(self.count_extract_frames()))
             return True
         except Exception as e:
             messagebox.showerror("错误", f"提取帧时出错: {str(e)}")
@@ -373,6 +1013,7 @@ class VideoEnhancerApp:
         """使用Real-ESRGAN增强帧"""
         try:
             self.log("正在增强视频帧...")
+            self.proc_state = ProcState.ENHANCE
             
             # 清空输出帧目录
             for file in os.listdir(self.out_frames_dir):
@@ -392,14 +1033,29 @@ class VideoEnhancerApp:
                 "-o", self.out_frames_dir,
                 "-n", self.model_var.get(),
                 "-s", self.scale_var.get(),
-                "-f", self.format_var.get()
+                "-f", self.format_var.get(),
             ]
-            
+
             # 如果是jpg格式，添加额外参数提高兼容性
             if self.format_var.get() == "jpg":
                 cmd.extend(["-g", "0"])  # 禁用GPU优化以提高兼容性
+
+            # tile-size
+            if self.tile_size_var.get() != "default":
+                cmd.extend(["-t", self.tile_size_var.get()])
             
+            # thread count for load/proc/save
+            if self.thread_count_var.get() != "default":
+                cmd.extend(["-j", self.thread_count_var.get()])
+
+            # tta mode
+            # if self.tta_mode_var.get() == "enable":
+            #     cmd.extend(["-x"])
+            
+            self.video_info["extract_frames"] = self.count_extract_frames()
+            self.log(" ".join(cmd))
             self.log("执行帧增强命令...")
+
             # 创建子进程并添加到进程列表
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             self.processes.append(process)
@@ -407,7 +1063,6 @@ class VideoEnhancerApp:
             _, stderr = process.communicate()
             if process.returncode != 0:
                 # 尝试不带额外参数的基本命令
-                self.log("尝试备用增强方法...")
                 cmd = [
                     realesrgan_exe,
                     "-i", self.tmp_frames_dir,
@@ -417,6 +1072,9 @@ class VideoEnhancerApp:
                     "-f", self.format_var.get()
                 ]
                 
+                self.log(" ".join(cmd))
+                self.log("尝试备用增强方法...")
+
                 process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 self.processes.append(process)
                 
@@ -435,40 +1093,57 @@ class VideoEnhancerApp:
         """将增强后的帧合并为视频"""
         try:
             self.log("正在合并视频帧...")
+            self.proc_state = ProcState.MERGE
             
             # 获取原始视频的FPS
-            fps = self.get_video_fps(video_path)
+            # fps = self.get_video_fps(video_path)
+            fps = self.fps_force_var.get()
+            if fps <= 0:
+                fps = self.video_info["fps"]
+                total_sec = self.video_info["total_sec"]
+                frames_extract = self.count_output_frames()
+                total_frames = self.video_info["total_frames"]
+                num = frames_extract - total_frames
+                if num < 0:
+                    num = -num
+
+                if num > fps:
+                    now_sec = frames_extract / fps
+                    fps = frames_extract / total_sec
+                    fps_sec = frames_extract / fps
+                    self.log(f"帧数差异较大: {num}={frames_extract}-{total_frames}, fps={fps}, total_sec={total_sec}, now_sec={now_sec}, fps_sec={fps_sec}")
+                    
             
-            # 获取桌面路径
-            desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
-            
-            # 获取原始文件名和扩展名
-            base_name = os.path.splitext(os.path.basename(video_path))[0]
-            ext = os.path.splitext(video_path)[1]
-            
-            # 生成带时间戳的文件名，确保唯一性
-            import datetime
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_video_name = f"enhanced_{base_name}_{timestamp}{ext}"
-            output_video_path = os.path.join(desktop_path, output_video_name)
+            # 视频输出路径
+            output_video_path = self.path_video_out(video_path)
             
             # 合并帧为视频 - 使用针对QQ播放器优化的参数
             # 首先尝试保留音频的版本
             cmd = [
                 os.path.join(self.project_root, "ffmpeg.exe"),
+                '-hwaccel', 'cuda',           # 启用CUDA硬件加速
                 "-r", str(fps),
-                "-i", os.path.join(self.out_frames_dir, "frame%08d.jpg"),
+                "-i", self.path_out_frames(),
                 "-i", video_path,
                 "-map", "0:v:0",
                 "-map", "1:a:0",
                 "-c:a", "aac",  # 使用AAC音频编码提高兼容性
-                "-c:v", "libx264",
-                "-preset", "fast",  # 使用快速编码预设
-                "-crf", "23",  # 视频质量控制
+                # "-c:v", "libx264",
+                '-c:v', 'h264_nvenc',         # 使用NVIDIA H.264编码器
+                # "-preset", "fast",  # 使用快速编码预设
+                "-preset", "p6",
+                # "-crf", "23",  # 视频质量控制
+                "-cq", "15", # h264_nvenc 不能用crf
                 "-r", str(fps),
                 "-pix_fmt", "yuv420p",
-                "-profile:v", "baseline",  # 使用baseline profile提高兼容性
-                "-level", "3.0",  # 使用level 3.0提高兼容性
+                # "-profile:v", "baseline",  # 使用baseline profile提高兼容性
+                "-profile:v", "high", 
+                "-b:v", self.bit_rate_var.get(),
+                "-maxrate", self.max_rate_var.get(),
+                "-bufsize", self.max_rate_var.get(),
+                # "-level", "3.0",  # 使用level 3.0提高兼容性
+                # "-level", "4.1",    # CUDA加速需要用更高的level
+                "-level", self.level_var.get(),
                 "-movflags", "+faststart",  # 优化文件结构以便快速开始播放
                 "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",  # 确保宽高为偶数
                 "-g", "30",  # GOP大小
@@ -476,6 +1151,7 @@ class VideoEnhancerApp:
                 output_video_path
             ]
             
+            self.log(" ".join(cmd))
             self.log("执行视频合并命令（带音频）...")
             # 创建子进程并添加到进程列表
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -483,42 +1159,71 @@ class VideoEnhancerApp:
             
             _, stderr = process.communicate()
             if process.returncode != 0:
+                self.log(f"执行视频合并命令（带音频）失败(code:{process.returncode}): {stderr.decode('utf-8', errors='ignore')}")
+
                 # 如果上面的方法失败，尝试简化版本（仅视频）
-                self.log("尝试仅视频合并...")
                 cmd = [
                     os.path.join(self.project_root, "ffmpeg.exe"),
                     "-r", str(fps),
-                    "-i", os.path.join(self.out_frames_dir, "frame%08d.jpg"),
+                    "-i", self.path_out_frames(),
+                    "-i", video_path,
+                    "-map", "0:v:0",
+                    "-map", "1:a:0",
+                    "-c:a", "aac",  # 使用AAC音频编码提高兼容性
                     "-c:v", "libx264",
-                    "-preset", "fast",
-                    "-crf", "23",
+                    "-preset", "fast",  # 使用快速编码预设
+                    "-crf", "23",  # 视频质量控制
                     "-r", str(fps),
                     "-pix_fmt", "yuv420p",
-                    "-profile:v", "baseline",
-                    "-level", "3.0",
-                    "-movflags", "+faststart",
-                    "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
-                    "-g", "30",
-                    "-bf", "0",
+                    "-profile:v", "baseline",  # 使用baseline profile提高兼容性
+                    "-level", "3.0",  # 使用level 3.0提高兼容性
+                    "-movflags", "+faststart",  # 优化文件结构以便快速开始播放
+                    "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",  # 确保宽高为偶数
+                    "-g", "30",  # GOP大小
+                    "-bf", "0",  # 不使用B帧以提高兼容性
                     output_video_path
                 ]
+                # cmd = [
+                #     os.path.join(self.project_root, "ffmpeg.exe"),
+                #     "-r", str(fps),
+                #     "-i", self.path_out_frames(),
+                #     "-c:v", "libx264",
+                #     "-preset", "fast",
+                #     "-crf", "23",
+                #     "-r", str(fps),
+                #     "-pix_fmt", "yuv420p",
+                #     "-profile:v", "baseline",
+                #     "-level", "3.0",
+                #     "-movflags", "+faststart",
+                #     "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+                #     "-g", "30",
+                #     "-bf", "0",
+                #     '-strict', 'experimental',    # 允许实验性编码
+                #     output_video_path
+                # ]
                 
+                self.log(" ".join(cmd))
+                self.log("尝试仅视频合并...")
+
                 process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 self.processes.append(process)
                 
                 _, stderr = process.communicate()
                 if process.returncode != 0:
+                    self.log(f"尝试仅视频合并失败(code:{process.returncode}): {stderr.decode('utf-8', errors='ignore')}")
                     # 如果仍然失败，使用最基本的参数
-                    self.log("尝试基本视频合并...")
                     cmd = [
                         os.path.join(self.project_root, "ffmpeg.exe"),
                         "-r", str(fps),
-                        "-i", os.path.join(self.out_frames_dir, "frame%08d.jpg"),
+                        "-i", self.path_out_frames(),
                         "-c:v", "libx264",
                         "-pix_fmt", "yuv420p",
                         "-preset", "ultrafast",  # 使用最快编码速度
                         output_video_path
                     ]
+
+                    self.log(" ".join(cmd))
+                    self.log("尝试基本视频合并...")
                     
                     process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                     self.processes.append(process)
@@ -528,22 +1233,29 @@ class VideoEnhancerApp:
                         raise Exception(f"合并视频失败: {stderr.decode('utf-8', errors='ignore')}")
             
             self.log(f"视频合并完成，输出文件: {output_video_path}")
-            messagebox.showinfo("完成", f"视频增强完成！输出文件已保存到桌面:\n{output_video_path}")
+            self.log("output video info: " + str(self.get_video_info(output_video_path)))
+            # messagebox.showinfo("完成", f"视频增强完成！输出文件已保存到:\n{output_video_path}")
             return True
         except Exception as e:
             messagebox.showerror("错误", f"合并视频时出错: {str(e)}")
             self.log(f"合并视频时出错: {str(e)}")
             return False
             
-    def update_progress(self, value):
-        """更新进度条"""
-        self.progress_var.set(value)
-        self.progress_label.config(text=f"{int(value)}%")
-        self.root.update()
+    # def update_progress(self, value):
+    #     """更新进度条"""
+    #     self.progress_var.set(value)
+    #     self.progress_label.config(text=f"{int(value)}%")
+    #     self.root.update()
             
+    def has_step(self, dst):
+        step = self.step_var.get()
+        if step == "all":
+            return True
+        return step == dst
+
     def enhancement_process(self):
         """执行完整的增强流程"""
-        try:
+        try:            
             video_path = self.video_path_var.get()
             if not video_path:
                 messagebox.showwarning("警告", "请先选择视频文件")
@@ -555,43 +1267,56 @@ class VideoEnhancerApp:
                 self.log("选择的视频文件不存在")
                 return
                 
+            self.log("-----------------------------------------------")
+            self.log("step: " + self.step_var.get())
+            self.log("video_path: " + video_path)
+
             self.log("开始视频增强流程...")
             
             # 步骤1: 提取帧
-            if not self.extract_frames(video_path):
+            if not self.has_step("extract"):
+                pass
+            elif(not self.extract_frames(video_path)):
                 return
                 
             # 更新进度
-            self.update_progress(33)
+            # self.update_progress(33)
             
             # 步骤2: 增强帧
-            if not self.enhance_frames():
+            if not self.has_step("enhance"):
+                pass
+            elif not self.enhance_frames():
                 return
                 
             # 更新进度
-            self.update_progress(66)
+            # self.update_progress(66)
             
             # 步骤3: 合并帧
-            if not self.merge_frames(video_path):
+            if not self.has_step("merge"):
+                pass
+            elif (not self.merge_frames(video_path)):
                 return
                 
             # 完成
-            self.update_progress(100)
+            # self.update_progress(100)
             self.log("视频增强流程完成")
-            self.status_var.set("增强完成")
+            # self.status_var.set("增强完成")
             
         except Exception as e:
             messagebox.showerror("错误", f"处理过程中发生错误: {str(e)}")
             self.log(f"处理过程中发生错误: {str(e)}")
         finally:
             self.start_button.config(state="normal")
+            self.step_combo.config(state="normal")
+            self.proc_state = ProcState.STOP
             
     def start_enhancement(self):
         """开始增强过程"""
         # 禁用开始按钮防止重复点击
         self.start_button.config(state="disabled")
-        self.progress_var.set(0)
-        self.progress_label.config(text="0%")
+        self.step_combo.config(state="disabled")
+        # self.progress_var.set(0)
+        # self.progress_label.config(text="0%")
         
         # 在新线程中运行增强过程
         thread = threading.Thread(target=self.enhancement_process)

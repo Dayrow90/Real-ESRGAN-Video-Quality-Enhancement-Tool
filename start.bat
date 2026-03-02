@@ -14,4 +14,4 @@ REM Launch the main program directly
 echo Starting Video Quality Enhancement Tool...
 "%PROJECT_ROOT%python\python.exe" "%PROJECT_ROOT%video_enhancer.py"
 
-pause
+REM pause
