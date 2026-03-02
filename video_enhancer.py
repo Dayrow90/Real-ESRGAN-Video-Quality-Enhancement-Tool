@@ -14,13 +14,15 @@ import math
 import av, moviepy
 import re
 import shutil
+from moviepy import VideoFileClip
 
 from enum import Enum
 class ProcState(Enum):
     STOP    = 0
-    EXTRACT = 1
-    ENHANCE = 2
-    MERGE   = 3
+    CUT     = 1
+    EXTRACT = 2
+    ENHANCE = 3
+    MERGE   = 4
 
 class VideoEnhancerApp:
     def __init__(self, root):
@@ -163,11 +165,21 @@ class VideoEnhancerApp:
         thread_count_frame.pack(fill=tk.X, padx=10, pady=5)
         
         tk.Label(thread_count_frame, text="thread count for load/proc/save:").pack(side=tk.LEFT)
+
+        cores = ["2", "4", "6", "8", "10", "12", "14", "16"]
+        tcs = []
+        for i in range(len(cores)):
+            load = cores[i]
+            for j in range(len(cores)):
+                proc = cores[j]
+                for k in range(len(cores)):
+                    save = cores[k]
+                    tcs.append(f"{load}:{proc}:{save}")
         
         self.thread_count_var = tk.StringVar(value="6:12:16")
         self.thread_count_combo = ttk.Combobox(thread_count_frame, textvariable=self.thread_count_var,
-                                   values=["default", "2:2:2", "4:4:4", "6:12:14"],
-                                   state="readonly", width=25)
+                                #    values=["default", "2:2:2", "4:4:4", "4:8:10", "6:12:14"],
+                                    values=tcs, state="readonly", width=25)
         self.thread_count_combo.pack(side=tk.RIGHT)
 
         # b:v
@@ -252,7 +264,7 @@ class VideoEnhancerApp:
         self.step_var = tk.StringVar(value="all")
         self.step_combo = ttk.Combobox(step_frame, textvariable=self.step_var, 
                                   values=[
-                                      "all",        # 裁剪 -> 提取帧 -> 增强帧 -> 合并帧
+                                      "all",        # 裁剪视频 -> 提取帧 -> 增强帧 -> 合并帧
                                       "cut",        # 裁剪视频
                                       "extract",    # 提取帧
                                       "enhance",    # 增强帧
@@ -262,7 +274,7 @@ class VideoEnhancerApp:
         self.step_combo.pack(side=tk.RIGHT)
 
         # 执行步骤说明
-        self.step_description_label = tk.Label(step_frame, text="提取帧 -> 增强帧 -> 合并帧", 
+        self.step_description_label = tk.Label(step_frame, text="裁剪视频 -> 提取帧 -> 增强帧 -> 合并帧", 
                                                font=("Arial", 8), fg="gray", wraplength=700, justify="left")
         self.step_description_label.pack(anchor=tk.W, side=tk.RIGHT)
         
@@ -309,21 +321,25 @@ class VideoEnhancerApp:
         
     def init_paths(self):
         """初始化必要的路径"""
-        self.dir_frames_extract = os.path.join(self.project_root, "output/frames_extract")
-        self.dir_frames_enhance = os.path.join(self.project_root, "output/frames_enhance")
-        self.log_dir = os.path.join(self.project_root, "log")
+        self.dir_output = os.path.join(self.project_root, "output")
+        self.dir_frames_extract = os.path.join(self.dir_output, "frames_extract")
+        self.dir_frames_enhance = os.path.join(self.dir_output, "frames_enhance")
+        self.dir_cut = os.path.join(self.dir_output, "cut")
+        self.dir_log = os.path.join(self.dir_output, "log")
 
         self.create_paths()
 
         # 创建日志文件
-        self.log_path = os.path.join(self.log_dir, time.strftime("%Y-%m-%d", time.localtime()) + ".log")
+        self.log_path = os.path.join(self.dir_log, time.strftime("%Y-%m-%d", time.localtime()) + ".log")
         self.log_file = open(self.log_path, "a+", encoding="utf-8")
 
     def create_paths(self):
         # 创建必要的目录
+        os.makedirs(self.dir_output, exist_ok=True)
         os.makedirs(self.dir_frames_extract, exist_ok=True)
         os.makedirs(self.dir_frames_enhance, exist_ok=True)
-        os.makedirs(self.log_dir, exist_ok=True)
+        os.makedirs(self.dir_cut, exist_ok=True)
+        os.makedirs(self.dir_log, exist_ok=True)
         
     def on_timer_enhance(self):
         self.log_text.after(60000, lambda: self.on_timer_enhance())
@@ -367,7 +383,9 @@ class VideoEnhancerApp:
         step = self.step_var.get()
         text = ""
         if step == "all":
-            text = "提取帧 -> 增强帧 -> 合并帧"
+            text = "裁剪视频 -> 提取帧 -> 增强帧 -> 合并帧"
+        elif step == "cut":
+            text = "裁剪视频"
         elif step == "extract":
             text = "提取帧"
         elif step == "enhance":
@@ -982,6 +1000,48 @@ class VideoEnhancerApp:
 
     def count_dir_frames_enhance(self):
         return len(os.listdir(self.dir_frames_enhance))
+    
+    def cut_video(self, video_path):
+        """裁剪视频"""
+        try:
+            head_sec = float(self.cut_head_sec_var.get())
+            tail_sec = float(self.cut_tail_sec_var.get())
+            self.log(f"正在裁剪视频({head_sec},{tail_sec})...")
+            self.proc_state = ProcState.CUT
+
+            if head_sec <= 0 and tail_sec <= 0:
+                return True
+
+            video_clip = VideoFileClip(video_path)
+            total_duration = video_clip.duration
+
+            st = head_sec
+            et = total_duration - tail_sec
+            if st <= 0:
+                self.log(f"st({st}) <= 0")
+                return False
+            elif et <= 0:
+                self.log(f"et({et}) <= 0")
+                return False
+            elif st > et:
+                self.log(f"st({st}) > et({et})")
+                return False
+            
+            file_name = os.path.basename(video_path)
+            self.cut_video_path = os.path.join(self.dir_cut, file_name)
+            self.log(f"裁剪视频输出到: {self.cut_video_path}")
+
+            trimmed_clip = video_clip.subclipped(st, et)
+            trimmed_clip.write_videofile(self.cut_video_path, audio_codec='aac')
+
+            video_clip.close()
+            trimmed_clip.close()
+
+            return True
+        except Exception as e:
+            messagebox.showerror("错误", f"裁剪视频时出错: {str(e)}")
+            self.log(f"裁剪视频时出错: {str(e)}")
+            return False
 
     def extract_frames(self, video_path):
         """从视频中提取帧"""
@@ -1300,6 +1360,16 @@ class VideoEnhancerApp:
             self.log("video_path: " + video_path)
 
             self.log("开始视频增强流程...")
+
+            if not self.has_step("cut"):
+                pass
+            elif not self.cut_video(video_path):
+                return
+            elif self.cut_video_path:
+                video_path = self.cut_video_path
+                self.video_info = self.get_video_info(video_path)
+                self.log(f"video_path: {video_path}")
+                self.log(f"video_info: {self.video_info}")
             
             # 步骤1: 提取帧
             if not self.has_step("extract"):
