@@ -11,8 +11,9 @@ import psutil
 import cv2
 import time
 import math
-import av
+import av, moviepy
 import re
+import shutil
 
 from enum import Enum
 class ProcState(Enum):
@@ -207,6 +208,31 @@ class VideoEnhancerApp:
         # vls = self.tta_mode_combo.cget("values")
         # self.log(">>>>> vls", vls, vls.index("disadbwle"))
 
+        self.cut_head_sec_var = tk.StringVar(value="0")
+        cut_head_frame = tk.Frame(self.params_frame)
+        cut_head_frame.pack(fill=tk.X, padx=10, pady=5)
+
+        secs = []
+        for i in range(180):
+            secs.append(str(i))
+
+        tk.Label(cut_head_frame, text="裁剪开头N秒:").pack(side=tk.LEFT)
+        self.cut_head_combo = ttk.Combobox(cut_head_frame, textvariable=self.cut_head_sec_var,
+                                   values=secs,
+                                   width=25)
+        self.cut_head_combo.pack(side=tk.RIGHT)
+
+        cut_tail_frame = tk.Frame(self.params_frame)
+        cut_tail_frame.pack(fill=tk.X, padx=10, pady=5)
+
+        self.cut_tail_sec_var = tk.StringVar(value="0")
+        tk.Label(cut_tail_frame, text="裁剪结尾N秒:").pack(side=tk.LEFT)
+        self.cut_tail_combo = ttk.Combobox(cut_tail_frame, textvariable=self.cut_tail_sec_var,
+                                   values=secs,
+                                   width=25)
+        self.cut_tail_combo.pack(side=tk.RIGHT)
+
+
         # 强制fps
         fps_force_frame = tk.Frame(self.params_frame)
         fps_force_frame.pack(fill=tk.X, padx=10, pady=5)
@@ -226,7 +252,8 @@ class VideoEnhancerApp:
         self.step_var = tk.StringVar(value="all")
         self.step_combo = ttk.Combobox(step_frame, textvariable=self.step_var, 
                                   values=[
-                                      "all",        # 提取帧 -> 增强帧 -> 合并帧
+                                      "all",        # 裁剪 -> 提取帧 -> 增强帧 -> 合并帧
+                                      "cut",        # 裁剪视频
                                       "extract",    # 提取帧
                                       "enhance",    # 增强帧
                                       "merge",      # 合并帧
@@ -282,25 +309,28 @@ class VideoEnhancerApp:
         
     def init_paths(self):
         """初始化必要的路径"""
-        self.tmp_frames_dir = os.path.join(self.project_root, "tmp_frames")
-        self.out_frames_dir = os.path.join(self.project_root, "out_frames")
+        self.dir_frames_extract = os.path.join(self.project_root, "output/frames_extract")
+        self.dir_frames_enhance = os.path.join(self.project_root, "output/frames_enhance")
         self.log_dir = os.path.join(self.project_root, "log")
-        
-        # 创建必要的目录
-        os.makedirs(self.tmp_frames_dir, exist_ok=True)
-        os.makedirs(self.out_frames_dir, exist_ok=True)
-        os.makedirs(self.log_dir, exist_ok=True)
+
+        self.create_paths()
 
         # 创建日志文件
         self.log_path = os.path.join(self.log_dir, time.strftime("%Y-%m-%d", time.localtime()) + ".log")
         self.log_file = open(self.log_path, "a+", encoding="utf-8")
+
+    def create_paths(self):
+        # 创建必要的目录
+        os.makedirs(self.dir_frames_extract, exist_ok=True)
+        os.makedirs(self.dir_frames_enhance, exist_ok=True)
+        os.makedirs(self.log_dir, exist_ok=True)
         
     def on_timer_enhance(self):
         self.log_text.after(60000, lambda: self.on_timer_enhance())
         if self.proc_state != ProcState.ENHANCE:
             return
         
-        files = os.listdir(self.out_frames_dir)
+        files = os.listdir(self.dir_frames_enhance)
         count = len(files)
         total_frames = int(self.video_info.get("extract_frames") or 1)
         percent = (count/total_frames)*100
@@ -822,7 +852,7 @@ class VideoEnhancerApp:
 
     def path_out_frames(self):
         file = "frame%08d." + self.format_var.get()
-        return os.path.join(self.out_frames_dir, file)
+        return os.path.join(self.dir_frames_enhance, file)
     
     def path_video_out(self, video_path):
         video_out_dir = self.video_out_var.get() or ""
@@ -947,11 +977,11 @@ class VideoEnhancerApp:
         cap.release()
         return info
     
-    def count_extract_frames(self):
-        return len(os.listdir(self.tmp_frames_dir))
+    def count_dir_frames_extract(self):
+        return len(os.listdir(self.dir_frames_extract))
 
-    def count_output_frames(self):
-        return len(os.listdir(self.out_frames_dir))
+    def count_dir_frames_enhance(self):
+        return len(os.listdir(self.dir_frames_enhance))
 
     def extract_frames(self, video_path):
         """从视频中提取帧"""
@@ -960,10 +990,9 @@ class VideoEnhancerApp:
             self.proc_state = ProcState.EXTRACT
             
             # 清空临时帧目录
-            for file in os.listdir(self.tmp_frames_dir):
-                file_path = os.path.join(self.tmp_frames_dir, file)
-                if os.path.isfile(file_path):
-                    os.unlink(file_path)
+            if self.count_dir_frames_extract() > 0:
+                shutil.rmtree(self.dir_frames_extract)
+                self.create_paths()
             
             # 提取帧 - 使用更兼容的参数
             cmd = [
@@ -973,7 +1002,7 @@ class VideoEnhancerApp:
                 "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",  # 确保宽高为偶数
                 "-q:v", "2",  # JPEG质量 (1-31, 1为最高质量)
                 "-start_number", "0",  # 从0开始编号
-                os.path.join(self.tmp_frames_dir, "frame%08d.jpg")
+                os.path.join(self.dir_frames_extract, "frame%08d.jpg")
             ]
             
             self.log(" ".join(cmd))
@@ -989,7 +1018,7 @@ class VideoEnhancerApp:
                     os.path.join(self.project_root, "ffmpeg.exe"),
                     "-i", video_path,
                     "-q:v", "2",
-                    os.path.join(self.tmp_frames_dir, "frame%08d.jpg")
+                    os.path.join(self.dir_frames_extract, "frame%08d.jpg")
                 ]
 
                 self.log(" ".join(cmd))
@@ -1002,7 +1031,7 @@ class VideoEnhancerApp:
                 if process.returncode != 0:
                     raise Exception(f"提取帧失败: {stderr.decode('utf-8', errors='ignore')}")
                 
-            self.log("视频帧提取完成, count_extract_frames: " + str(self.count_extract_frames()))
+            self.log("视频帧提取完成, count_dir_frames_extract: " + str(self.count_dir_frames_extract()))
             return True
         except Exception as e:
             messagebox.showerror("错误", f"提取帧时出错: {str(e)}")
@@ -1016,10 +1045,9 @@ class VideoEnhancerApp:
             self.proc_state = ProcState.ENHANCE
             
             # 清空输出帧目录
-            for file in os.listdir(self.out_frames_dir):
-                file_path = os.path.join(self.out_frames_dir, file)
-                if os.path.isfile(file_path):
-                    os.unlink(file_path)
+            if self.count_dir_frames_enhance() > 0:
+                shutil.rmtree(self.dir_frames_enhance)
+                self.create_paths()
             
             # 执行增强
             realesrgan_exe = os.path.join(self.project_root, "realesrgan-ncnn-vulkan.exe")
@@ -1029,8 +1057,8 @@ class VideoEnhancerApp:
             # 构建命令参数
             cmd = [
                 realesrgan_exe,
-                "-i", self.tmp_frames_dir,
-                "-o", self.out_frames_dir,
+                "-i", self.dir_frames_extract,
+                "-o", self.dir_frames_enhance,
                 "-n", self.model_var.get(),
                 "-s", self.scale_var.get(),
                 "-f", self.format_var.get(),
@@ -1052,7 +1080,7 @@ class VideoEnhancerApp:
             # if self.tta_mode_var.get() == "enable":
             #     cmd.extend(["-x"])
             
-            self.video_info["extract_frames"] = self.count_extract_frames()
+            self.video_info["extract_frames"] = self.count_dir_frames_extract()
             self.log(" ".join(cmd))
             self.log("执行帧增强命令...")
 
@@ -1065,8 +1093,8 @@ class VideoEnhancerApp:
                 # 尝试不带额外参数的基本命令
                 cmd = [
                     realesrgan_exe,
-                    "-i", self.tmp_frames_dir,
-                    "-o", self.out_frames_dir,
+                    "-i", self.dir_frames_extract,
+                    "-o", self.dir_frames_enhance,
                     "-n", self.model_var.get(),
                     "-s", self.scale_var.get(),
                     "-f", self.format_var.get()
@@ -1101,7 +1129,7 @@ class VideoEnhancerApp:
             if fps <= 0:
                 fps = self.video_info["fps"]
                 total_sec = self.video_info["total_sec"]
-                frames_extract = self.count_output_frames()
+                frames_extract = self.count_dir_frames_enhance()
                 total_frames = self.video_info["total_frames"]
                 num = frames_extract - total_frames
                 if num < 0:
