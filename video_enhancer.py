@@ -99,7 +99,7 @@ class VideoEnhancerApp:
         file_frame = tk.Frame(video_out_frame)
         file_frame.pack(fill=tk.X, pady=5)
         
-        self.video_out_var = tk.StringVar()
+        self.video_out_var = self.string_var("video_out")
         tk.Entry(file_frame, textvariable=self.video_out_var, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True)
         
         tk.Button(file_frame, text="浏览", command=self.browse_video_out).pack(side=tk.RIGHT, padx=(5, 0))
@@ -376,6 +376,7 @@ class VideoEnhancerApp:
         self.dir_frames_extract = os.path.join(self.dir_output, "frames_extract")
         self.dir_frames_enhance = os.path.join(self.dir_output, "frames_enhance")
         self.dir_cut = os.path.join(self.dir_output, "cut")
+        self.dir_capture = os.path.join(self.dir_output, "capture")
         self.dir_log = os.path.join(self.dir_output, "log")
 
         self.create_paths()
@@ -390,6 +391,7 @@ class VideoEnhancerApp:
         os.makedirs(self.dir_frames_extract, exist_ok=True)
         os.makedirs(self.dir_frames_enhance, exist_ok=True)
         os.makedirs(self.dir_cut, exist_ok=True)
+        os.makedirs(self.dir_capture, exist_ok=True)
         os.makedirs(self.dir_log, exist_ok=True)
         
     def on_timer_enhance(self):
@@ -450,21 +452,18 @@ class VideoEnhancerApp:
         self.log("----------")
         path = self.video_path_var.get()
         if os.path.isdir(path):
-            self.video_out_var.set(path)
+            if self.video_out_var.get() == "":
+                self.video_out_var.set(path)
             return
         elif not os.path.isfile(path):
             return
         
-        self.video_out_var.set(os.path.dirname(path))
+        if self.video_out_var.get() == "":
+            self.video_out_var.set(os.path.dirname(path))
             
         self.video_info = self.get_video_info(path)
         self.log(f"video_path: {path}")
         self.log(f"video_info: {self.video_info }")
-        # self.log(f"frame_rate: {self.detect_video_framerate(path)}")
-        # self.log(f"count_decoded_frames: {self.count_decoded_frames(path)}")
-
-        # self.check_vfr_with_ffmpeg(path)
-        # self.log(f"analyze_vfr_pyav: {self.analyze_vfr_pyav(path)}")
 
         level = self.cal_video_level(self.video_info )
         level = level and str(int(float(level) * 10))
@@ -472,24 +471,7 @@ class VideoEnhancerApp:
 
         if level in self.level_combo.cget("values"):
             self.level_var.set(level)
-        
-        # ffprobe -v quiet -select_streams v:0 -show_entries frame=best_effort_timestamp_time -of csv=p=0 input_video.mp4 > timestamps.txt
-        # cmd = [
-        #     os.path.join(self.project_root, "ffprobe.exe"),
-        #     "-v", "quiet",
-        #     '-hwaccel', 'cuda',           # 启用CUDA硬件加速
-        #     "-select_streams", "v:0",
-        #     # "-show_entries", "frame=best_effort_timestamp_time",
-        #     "-show_entries", "frame=n_frame,pkt_duration_time",
-        #     "-of", "csv=p=0",
-        #     self.video_path_var.get(),
-        # ]
-        # process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        # self.processes.append(process)
-        # stdout, stderr = process.communicate()
-        # self.log(f"cmd: {" ".join(cmd)}")
-        # self.log(f"VFR-stdout: {stdout.decode('utf-8', errors='ignore')}")
-        # self.log(f"VFR-stderr: {stderr.decode('utf-8', errors='ignore')}")
+
 
     def on_enter_cut_head_label(self, *args):
         """鼠标进入按钮时的处理函数"""
@@ -503,7 +485,7 @@ class VideoEnhancerApp:
             return
         
         basename = os.path.basename(path)
-        output_image_path = os.path.join(self.dir_cut, f"{basename}_head_{sec}.png")
+        output_image_path = os.path.join(self.dir_capture, f"{basename}_head_{sec}.png")
         self.capture_frame(path, output_image_path, sec)
         if not os.path.isfile(output_image_path):
             return
@@ -533,7 +515,7 @@ class VideoEnhancerApp:
             return
         
         basename = os.path.basename(path)
-        output_image_path = os.path.join(self.dir_cut, f"{basename}_tail_{sec}.png")
+        output_image_path = os.path.join(self.dir_capture, f"{basename}_tail_{sec}.png")
         self.capture_frame(path, output_image_path, -sec)
         if not os.path.isfile(output_image_path):
             return
