@@ -63,6 +63,7 @@ class VideoEnhancerApp:
         # 确保鼠标离开图片窗口时也隐藏它
         self.tooltip_video_cut.bind("<Leave>", self.on_leave_tooltip_video_cut)
         self.entering_label = None
+        self.img_video_cap = None
 
         self.on_timer_enhance()
         
@@ -263,8 +264,8 @@ class VideoEnhancerApp:
         self.tooltip_video_cut.overrideredirect(True) # 移除窗口边框
         
         # 为工具提示窗口添加一个 Label 来显示图片
-        self.img_video_cut = tk.Label(self.tooltip_video_cut, bg='white', bd=1, relief='solid')
-        self.img_video_cut.pack()
+        self.img_video_cap_label = tk.Label(self.tooltip_video_cut, bg='white', bd=1, relief='solid')
+        self.img_video_cap_label.pack()
 
         # 强制fps
         fps_force_frame = tk.Frame(self.params_frame)
@@ -534,12 +535,12 @@ class VideoEnhancerApp:
         )
         
         # 获取主按钮和图片窗口的顶层窗口widget
-        button_toplevel = self.entering_label.winfo_toplevel()
+        label_toplevel = self.entering_label.winfo_toplevel()
         tooltip_toplevel = self.tooltip_video_cut
 
         # 如果鼠标不在按钮或图片窗口上，则隐藏
         if (under_mouse_id != self.entering_label and 
-            under_mouse_id != button_toplevel and
+            under_mouse_id != label_toplevel and
             under_mouse_id != tooltip_toplevel):
             self.tooltip_video_cut.withdraw()
             self.entering_label = None
@@ -559,12 +560,15 @@ class VideoEnhancerApp:
         """
         try:
             if os.path.isfile(output_image_path):
+                if self.img_video_cap == output_image_path:
+                    return
                 pil_image = Image.open(output_image_path)
                 # 限制图片最大尺寸为 300x300
-                max_size = (300, 300)
+                max_size = (200, 200)
                 pil_image.thumbnail(max_size, Image.Resampling.LANCZOS)
                 self.photo_image = ImageTk.PhotoImage(pil_image)
-                self.img_video_cut.config(image=self.photo_image)
+                self.img_video_cap_label.config(image=self.photo_image)
+                self.img_video_cap = output_image_path
                 return
 
             # 1. 加载视频文件
@@ -604,10 +608,11 @@ class VideoEnhancerApp:
             if os.path.isfile(output_image_path):
                 pil_image = Image.open(output_image_path)
                 # 限制图片最大尺寸为 300x300
-                max_size = (300, 300)
+                max_size = (200, 200)
                 pil_image.thumbnail(max_size, Image.Resampling.LANCZOS)
                 self.photo_image = ImageTk.PhotoImage(pil_image)
-                self.img_video_cut.config(image=self.photo_image)
+                self.img_video_cap_label.config(image=self.photo_image)
+                self.img_video_cap = output_image_path
 
         except FileNotFoundError:
             self.log(f"错误: 找不到视频文件 '{video_path}'")
@@ -617,7 +622,6 @@ class VideoEnhancerApp:
             self.log("错误: 未找到 'PIL' 或 'Pillow' 库。请运行 'pip install Pillow' 安装。")
         except Exception as e:
             self.log(f"发生了一个意外错误: {e}")
-
 
     def detect_video_framerate(self, video_path, threshold_ms=5.0, sample_limit=None):
         """
