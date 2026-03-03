@@ -16,6 +16,7 @@ import re
 import shutil
 from moviepy import VideoFileClip
 from PIL import Image, ImageTk
+from config import ConfigManager
 
 from enum import Enum
 class ProcState(Enum):
@@ -28,6 +29,7 @@ class ProcState(Enum):
 class VideoEnhancerApp:
     def __init__(self, root):
         self.proc_state = ProcState.STOP
+        self.db = ConfigManager("video_enhancer.db")
         
         self.root = root
         self.root.title("Real-ESRGAN 视频画质增强工具")
@@ -61,7 +63,7 @@ class VideoEnhancerApp:
         self.cut_tail_label.bind("<Enter>", self.on_enter_cut_tail_label)
         self.cut_tail_label.bind("<Leave>", self.on_leave_cut_tail_label)
         # 确保鼠标离开图片窗口时也隐藏它
-        self.tooltip_video_cut.bind("<Leave>", self.on_leave_tooltip_video_cut)
+        self.tooltip_video_cap.bind("<Leave>", self.on_leave_tooltip_video_cap)
         self.entering_label = None
         self.img_video_cap = None
 
@@ -111,7 +113,7 @@ class VideoEnhancerApp:
         
         tk.Label(model_frame, text="增强模型:").pack(side=tk.LEFT)
         
-        self.model_var = tk.StringVar(value="realesr-animevideov3")
+        self.model_var = tk.StringVar(value=self.db.get("model", "realesr-animevideov3"))
         self.model_combo = ttk.Combobox(model_frame, textvariable=self.model_var, 
                                   values=["realesr-animevideov3", "realesrgan-x4plus", "realesrgan-x4plus-anime"],
                                   state="readonly", width=25)
@@ -128,7 +130,7 @@ class VideoEnhancerApp:
         
         tk.Label(scale_frame, text="缩放因子:").pack(side=tk.LEFT)
         
-        self.scale_var = tk.StringVar(value="4")
+        self.scale_var = tk.StringVar(value=self.db.get("scale", "4"))
         self.scale_combo = ttk.Combobox(scale_frame, textvariable=self.scale_var,
                                        values=["2", "3", "4"],
                                        state="readonly", width=25)
@@ -140,7 +142,7 @@ class VideoEnhancerApp:
         
         tk.Label(format_frame, text="输出格式:").pack(side=tk.LEFT)
         
-        self.format_var = tk.StringVar(value="png")
+        self.format_var = tk.StringVar(value=self.db.get("format", "png"))
         self.format_combo = ttk.Combobox(format_frame, textvariable=self.format_var,
                                    values=["jpg", "png"],
                                    state="readonly", width=25)
@@ -259,12 +261,12 @@ class VideoEnhancerApp:
 
         # --- 工具提示窗口 (Toplevel) ---
         # 不要将它 pack() 或 grid() 到任何地方
-        self.tooltip_video_cut = tk.Toplevel(self.root)
-        self.tooltip_video_cut.withdraw() # 初始隐藏
-        self.tooltip_video_cut.overrideredirect(True) # 移除窗口边框
+        self.tooltip_video_cap = tk.Toplevel(self.root)
+        self.tooltip_video_cap.withdraw() # 初始隐藏
+        self.tooltip_video_cap.overrideredirect(True) # 移除窗口边框
         
         # 为工具提示窗口添加一个 Label 来显示图片
-        self.img_video_cap_label = tk.Label(self.tooltip_video_cut, bg='white', bd=1, relief='solid')
+        self.img_video_cap_label = tk.Label(self.tooltip_video_cap, bg='white', bd=1, relief='solid')
         self.img_video_cap_label.pack()
 
         # 强制fps
@@ -340,7 +342,10 @@ class VideoEnhancerApp:
         tk.Button(button_frame, text="退出", command=self.exit_application,
                  bg="#f44336", fg="white", font=("Arial", 10, "bold"),
                  padx=20).pack(side=tk.LEFT, padx=10)
-        
+            
+    def save_configs(self):
+        pass
+
     def init_paths(self):
         """初始化必要的路径"""
         self.dir_output = os.path.join(self.project_root, "output")
@@ -483,14 +488,14 @@ class VideoEnhancerApp:
         x = self.root.winfo_pointerx() + 10
         y = self.root.winfo_pointery() + 10
         # 定位并显示工具提示窗口
-        self.tooltip_video_cut.geometry(f"+{x}+{y}")
-        self.tooltip_video_cut.deiconify() # 显示窗口
+        self.tooltip_video_cap.geometry(f"+{x}+{y}")
+        self.tooltip_video_cap.deiconify() # 显示窗口
         self.entering_label = self.cut_head_label
 
     def on_leave_cut_head_label(self, *args):
         """鼠标离开按钮时的处理函数"""
         # 延迟隐藏，以防鼠标快速移动到图片窗口上导致闪烁
-        self.tooltip_video_cut.after(50, self._hide_if_not_over)
+        self.tooltip_video_cap.after(50, self._hide_if_not_over)
 
     def on_enter_cut_tail_label(self, *args):
         """鼠标进入按钮时的处理函数"""
@@ -513,14 +518,14 @@ class VideoEnhancerApp:
         x = self.root.winfo_pointerx() + 10
         y = self.root.winfo_pointery() + 10
         # 定位并显示工具提示窗口
-        self.tooltip_video_cut.geometry(f"+{x}+{y}")
-        self.tooltip_video_cut.deiconify() # 显示窗口
+        self.tooltip_video_cap.geometry(f"+{x}+{y}")
+        self.tooltip_video_cap.deiconify() # 显示窗口
         self.entering_label = self.cut_tail_label
 
     def on_leave_cut_tail_label(self, *args):
         """鼠标离开按钮时的处理函数"""
         # 延迟隐藏，以防鼠标快速移动到图片窗口上导致闪烁
-        self.tooltip_video_cut.after(50, self._hide_if_not_over)
+        self.tooltip_video_cap.after(50, self._hide_if_not_over)
 
     def _hide_if_not_over(self):
         """辅助函数：检查鼠标是否仍在主按钮或图片窗口上，如果不是则隐藏"""
@@ -536,18 +541,18 @@ class VideoEnhancerApp:
         
         # 获取主按钮和图片窗口的顶层窗口widget
         label_toplevel = self.entering_label.winfo_toplevel()
-        tooltip_toplevel = self.tooltip_video_cut
+        tooltip_toplevel = self.tooltip_video_cap
 
         # 如果鼠标不在按钮或图片窗口上，则隐藏
         if (under_mouse_id != self.entering_label and 
             under_mouse_id != label_toplevel and
             under_mouse_id != tooltip_toplevel):
-            self.tooltip_video_cut.withdraw()
+            self.tooltip_video_cap.withdraw()
             self.entering_label = None
 
-    def on_leave_tooltip_video_cut(self, *args):
+    def on_leave_tooltip_video_cap(self, *args):
         """鼠标离开工具提示窗口时的处理函数"""
-        self.tooltip_video_cut.withdraw() # 直接隐藏
+        self.tooltip_video_cap.withdraw() # 直接隐藏
 
     def capture_frame(self, video_path, output_image_path, time_in_seconds):
         """
@@ -1558,6 +1563,8 @@ class VideoEnhancerApp:
                 messagebox.showerror("错误", "选择的视频文件不存在")
                 self.log("选择的视频文件不存在")
                 return
+            
+            self.save_configs()
                 
             self.log("-----------------------------------------------")
             self.log("step: " + self.step_var.get())
