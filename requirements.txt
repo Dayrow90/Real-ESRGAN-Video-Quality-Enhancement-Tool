@@ -1,4 +1,6 @@
-tkinter
+moviepy
 Pillow
 opencv-python
 psutil
+ffmpeg
+av

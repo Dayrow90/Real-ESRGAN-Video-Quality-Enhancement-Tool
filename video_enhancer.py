@@ -13,7 +13,6 @@ import time
 import math
 import av, moviepy
 import re
-import shutil
 from moviepy import VideoFileClip
 from PIL import Image, ImageTk
 from config import ConfigManager
@@ -73,8 +72,8 @@ class VideoEnhancerApp:
         
     def create_widgets(self):
         # 标题
-        title_label = tk.Label(self.root, text="Real-ESRGAN 视频画质增强工具", font=("Arial", 16, "bold"))
-        title_label.pack(pady=10)
+        # title_label = tk.Label(self.root, text="Real-ESRGAN 视频画质增强工具", font=("Arial", 16, "bold"))
+        # title_label.pack(pady=10)
         
         # 视频文件选择框
         video_frame = tk.Frame(self.root)
