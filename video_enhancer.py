@@ -15,6 +15,7 @@ import av, moviepy
 import re
 import shutil
 from moviepy import VideoFileClip
+from PIL import Image, ImageTk
 
 from enum import Enum
 class ProcState(Enum):
@@ -53,6 +54,15 @@ class VideoEnhancerApp:
         self.model_var.trace('w', self.on_model_change)
         self.step_var.trace('w', self.on_step_change)
         self.video_path_var.trace('w', self.on_path_video_change)
+
+        # --- 绑定事件 ---
+        self.cut_head_label.bind("<Enter>", self.on_enter_cut_head_label)
+        self.cut_head_label.bind("<Leave>", self.on_leave_cut_head_label)
+        self.cut_tail_label.bind("<Enter>", self.on_enter_cut_tail_label)
+        self.cut_tail_label.bind("<Leave>", self.on_leave_cut_tail_label)
+        # 确保鼠标离开图片窗口时也隐藏它
+        self.tooltip_video_cut.bind("<Leave>", self.on_leave_tooltip_video_cut)
+        self.entering_label = None
 
         self.on_timer_enhance()
         
@@ -228,7 +238,8 @@ class VideoEnhancerApp:
         for i in range(180):
             secs.append(str(i))
 
-        tk.Label(cut_head_frame, text="裁剪开头N秒:").pack(side=tk.LEFT)
+        self.cut_head_label = tk.Label(cut_head_frame, text="裁剪开头N秒:")
+        self.cut_head_label.pack(side=tk.LEFT)
         self.cut_head_combo = ttk.Combobox(cut_head_frame, textvariable=self.cut_head_sec_var,
                                    values=secs,
                                    width=25)
@@ -238,12 +249,22 @@ class VideoEnhancerApp:
         cut_tail_frame.pack(fill=tk.X, padx=10, pady=5)
 
         self.cut_tail_sec_var = tk.StringVar(value="0")
-        tk.Label(cut_tail_frame, text="裁剪结尾N秒:").pack(side=tk.LEFT)
+        self.cut_tail_label = tk.Label(cut_tail_frame, text="裁剪结尾N秒:")
+        self.cut_tail_label.pack(side=tk.LEFT)
         self.cut_tail_combo = ttk.Combobox(cut_tail_frame, textvariable=self.cut_tail_sec_var,
                                    values=secs,
                                    width=25)
         self.cut_tail_combo.pack(side=tk.RIGHT)
 
+        # --- 工具提示窗口 (Toplevel) ---
+        # 不要将它 pack() 或 grid() 到任何地方
+        self.tooltip_video_cut = tk.Toplevel(self.root)
+        self.tooltip_video_cut.withdraw() # 初始隐藏
+        self.tooltip_video_cut.overrideredirect(True) # 移除窗口边框
+        
+        # 为工具提示窗口添加一个 Label 来显示图片
+        self.img_video_cut = tk.Label(self.tooltip_video_cut, bg='white', bd=1, relief='solid')
+        self.img_video_cut.pack()
 
         # 强制fps
         fps_force_frame = tk.Frame(self.params_frame)
@@ -439,6 +460,164 @@ class VideoEnhancerApp:
         # self.log(f"cmd: {" ".join(cmd)}")
         # self.log(f"VFR-stdout: {stdout.decode('utf-8', errors='ignore')}")
         # self.log(f"VFR-stderr: {stderr.decode('utf-8', errors='ignore')}")
+
+    def on_enter_cut_head_label(self, *args):
+        """鼠标进入按钮时的处理函数"""
+
+        path = self.video_path_var.get()
+        if not os.path.isfile(path):
+            return
+        
+        sec = float(self.cut_head_sec_var.get())
+        if sec <= 0:
+            return
+        
+        basename = os.path.basename(path)
+        output_image_path = os.path.join(self.dir_cut, f"{basename}_head_{sec}.png")
+        self.capture_frame(path, output_image_path, sec)
+        if not os.path.isfile(output_image_path):
+            return
+        
+        # 获取鼠标指针的屏幕坐标
+        x = self.root.winfo_pointerx() + 10
+        y = self.root.winfo_pointery() + 10
+        # 定位并显示工具提示窗口
+        self.tooltip_video_cut.geometry(f"+{x}+{y}")
+        self.tooltip_video_cut.deiconify() # 显示窗口
+        self.entering_label = self.cut_head_label
+
+    def on_leave_cut_head_label(self, *args):
+        """鼠标离开按钮时的处理函数"""
+        # 延迟隐藏，以防鼠标快速移动到图片窗口上导致闪烁
+        self.tooltip_video_cut.after(50, self._hide_if_not_over)
+
+    def on_enter_cut_tail_label(self, *args):
+        """鼠标进入按钮时的处理函数"""
+
+        path = self.video_path_var.get()
+        if not os.path.isfile(path):
+            return
+        
+        sec = float(self.cut_tail_sec_var.get())
+        if sec <= 0:
+            return
+        
+        basename = os.path.basename(path)
+        output_image_path = os.path.join(self.dir_cut, f"{basename}_tail_{sec}.png")
+        self.capture_frame(path, output_image_path, -sec)
+        if not os.path.isfile(output_image_path):
+            return
+        
+        # 获取鼠标指针的屏幕坐标
+        x = self.root.winfo_pointerx() + 10
+        y = self.root.winfo_pointery() + 10
+        # 定位并显示工具提示窗口
+        self.tooltip_video_cut.geometry(f"+{x}+{y}")
+        self.tooltip_video_cut.deiconify() # 显示窗口
+        self.entering_label = self.cut_tail_label
+
+    def on_leave_cut_tail_label(self, *args):
+        """鼠标离开按钮时的处理函数"""
+        # 延迟隐藏，以防鼠标快速移动到图片窗口上导致闪烁
+        self.tooltip_video_cut.after(50, self._hide_if_not_over)
+
+    def _hide_if_not_over(self):
+        """辅助函数：检查鼠标是否仍在主按钮或图片窗口上，如果不是则隐藏"""
+
+        if not self.entering_label:
+            return
+
+        # 获取当前鼠标所在的窗口ID
+        under_mouse_id = self.root.winfo_containing(
+            self.root.winfo_pointerx(), 
+            self.root.winfo_pointery()
+        )
+        
+        # 获取主按钮和图片窗口的顶层窗口widget
+        button_toplevel = self.entering_label.winfo_toplevel()
+        tooltip_toplevel = self.tooltip_video_cut
+
+        # 如果鼠标不在按钮或图片窗口上，则隐藏
+        if (under_mouse_id != self.entering_label and 
+            under_mouse_id != button_toplevel and
+            under_mouse_id != tooltip_toplevel):
+            self.tooltip_video_cut.withdraw()
+            self.entering_label = None
+
+    def on_leave_tooltip_video_cut(self, *args):
+        """鼠标离开工具提示窗口时的处理函数"""
+        self.tooltip_video_cut.withdraw() # 直接隐藏
+
+    def capture_frame(self, video_path, output_image_path, time_in_seconds):
+        """
+        对一个视频文件, 截取某一秒的视频截图, 并生成图片文件。
+
+        Args:
+            video_path (str): 视频文件的路径。
+            output_image_path (str): 输出图片文件的路径 (例如 'screenshot.png')。
+            time_in_seconds (float): 要截取画面的时间点，以秒为单位。
+        """
+        try:
+            if os.path.isfile(output_image_path):
+                pil_image = Image.open(output_image_path)
+                # 限制图片最大尺寸为 300x300
+                max_size = (300, 300)
+                pil_image.thumbnail(max_size, Image.Resampling.LANCZOS)
+                self.photo_image = ImageTk.PhotoImage(pil_image)
+                self.img_video_cut.config(image=self.photo_image)
+                return
+
+            # 1. 加载视频文件
+            self.log(f"正在加载视频: {video_path}")
+            video_clip = VideoFileClip(video_path)
+
+            # 获取视频总时长
+            total_duration = video_clip.duration
+            self.log(f"视频总时长: {total_duration:.2f} 秒")
+
+            if time_in_seconds < 0:
+                time_in_seconds = time_in_seconds + total_duration
+
+            # 检查时间点是否有效
+            if time_in_seconds < 0 or time_in_seconds > total_duration:
+                raise ValueError(f"指定的时间点 ({time_in_seconds}s) 超出了视频范围 (0 - {total_duration:.2f}s)。")
+
+            # 2. 提取指定时间点的帧
+            self.log(f"正在截取第 {time_in_seconds}s 处的画面...")
+            frame_image = video_clip.get_frame(time_in_seconds)
+
+            # 3. 将帧保存为图片
+            # moviepy 使用的是 PIL/Pillow 库，所以我们可以直接用它保存
+            result_image = Image.fromarray(frame_image)
+            
+            # 确保输出目录存在
+            output_dir = os.path.dirname(output_image_path)
+            if output_dir:
+                os.makedirs(output_dir, exist_ok=True)
+            
+            result_image.save(output_image_path)
+            self.log(f"截图已成功保存到: {output_image_path}")
+
+            # 4. 关闭 clip 以释放资源
+            video_clip.close()
+
+            if os.path.isfile(output_image_path):
+                pil_image = Image.open(output_image_path)
+                # 限制图片最大尺寸为 300x300
+                max_size = (300, 300)
+                pil_image.thumbnail(max_size, Image.Resampling.LANCZOS)
+                self.photo_image = ImageTk.PhotoImage(pil_image)
+                self.img_video_cut.config(image=self.photo_image)
+
+        except FileNotFoundError:
+            self.log(f"错误: 找不到视频文件 '{video_path}'")
+        except ValueError as e:
+            self.log(f"错误: {e}")
+        except ImportError:
+            self.log("错误: 未找到 'PIL' 或 'Pillow' 库。请运行 'pip install Pillow' 安装。")
+        except Exception as e:
+            self.log(f"发生了一个意外错误: {e}")
+
 
     def detect_video_framerate(self, video_path, threshold_ms=5.0, sample_limit=None):
         """
@@ -1196,17 +1375,38 @@ class VideoEnhancerApp:
                     num = -num
 
                 if num > fps:
+                    # TODO VFR
                     now_sec = frames_extract / fps
                     fps = frames_extract / total_sec
                     fps_sec = frames_extract / fps
                     self.log(f"帧数差异较大: {num}={frames_extract}-{total_frames}, fps={fps}, total_sec={total_sec}, now_sec={now_sec}, fps_sec={fps_sec}")
-                    
             
             # 视频输出路径
             output_video_path = self.path_video_out(video_path)
             
             # 合并帧为视频 - 使用针对QQ播放器优化的参数
             # 首先尝试保留音频的版本
+            #  cmd = [
+            #     os.path.join(self.project_root, "ffmpeg.exe"),
+            #     "-r", str(fps),
+            #     "-i", os.path.join(self.out_frames_dir, "frame%08d.jpg"),
+            #     "-i", video_path,
+            #     "-map", "0:v:0",
+            #     "-map", "1:a:0",
+            #     "-c:a", "aac",  # 使用AAC音频编码提高兼容性
+            #     "-c:v", "libx264",
+            #     "-preset", "fast",  # 使用快速编码预设
+            #     "-crf", "23",  # 视频质量控制
+            #     "-r", str(fps),
+            #     "-pix_fmt", "yuv420p",
+            #     "-profile:v", "baseline",  # 使用baseline profile提高兼容性
+            #     "-level", "3.0",  # 使用level 3.0提高兼容性
+            #     "-movflags", "+faststart",  # 优化文件结构以便快速开始播放
+            #     "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",  # 确保宽高为偶数
+            #     "-g", "30",  # GOP大小
+            #     "-bf", "0",  # 不使用B帧以提高兼容性
+            #     output_video_path
+            # ]
             cmd = [
                 os.path.join(self.project_root, "ffmpeg.exe"),
                 '-hwaccel', 'cuda',           # 启用CUDA硬件加速
