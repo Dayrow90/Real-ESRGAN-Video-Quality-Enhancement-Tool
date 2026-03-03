@@ -17,6 +17,7 @@ import shutil
 from moviepy import VideoFileClip
 from PIL import Image, ImageTk
 from config import ConfigManager
+import ffmpeg
 
 from enum import Enum
 class ProcState(Enum):
@@ -30,6 +31,7 @@ class VideoEnhancerApp:
     def __init__(self, root):
         self.proc_state = ProcState.STOP
         self.db = ConfigManager("video_enhancer.db")
+        self.configs = {}
         
         self.root = root
         self.root.title("Real-ESRGAN 视频画质增强工具")
@@ -113,7 +115,7 @@ class VideoEnhancerApp:
         
         tk.Label(model_frame, text="增强模型:").pack(side=tk.LEFT)
         
-        self.model_var = tk.StringVar(value=self.db.get("model", "realesr-animevideov3"))
+        self.model_var = self.string_var("model", "realesr-animevideov3")
         self.model_combo = ttk.Combobox(model_frame, textvariable=self.model_var, 
                                   values=["realesr-animevideov3", "realesrgan-x4plus", "realesrgan-x4plus-anime"],
                                   state="readonly", width=25)
@@ -130,7 +132,7 @@ class VideoEnhancerApp:
         
         tk.Label(scale_frame, text="缩放因子:").pack(side=tk.LEFT)
         
-        self.scale_var = tk.StringVar(value=self.db.get("scale", "4"))
+        self.scale_var = self.string_var("scale", "4")
         self.scale_combo = ttk.Combobox(scale_frame, textvariable=self.scale_var,
                                        values=["2", "3", "4"],
                                        state="readonly", width=25)
@@ -142,7 +144,7 @@ class VideoEnhancerApp:
         
         tk.Label(format_frame, text="输出格式:").pack(side=tk.LEFT)
         
-        self.format_var = tk.StringVar(value=self.db.get("format", "png"))
+        self.format_var = self.string_var("format", "png")
         self.format_combo = ttk.Combobox(format_frame, textvariable=self.format_var,
                                    values=["jpg", "png"],
                                    state="readonly", width=25)
@@ -154,7 +156,7 @@ class VideoEnhancerApp:
         
         tk.Label(level_frame, text="level:").pack(side=tk.LEFT)
         
-        self.level_var = tk.StringVar(value="30")
+        self.level_var = self.string_var("level", "30")
         self.level_combo = ttk.Combobox(level_frame, textvariable=self.level_var,
                                    values=["30", "31", "40", "41", "42", "50", "51", "52"],
                                    state="readonly", width=25)
@@ -166,7 +168,7 @@ class VideoEnhancerApp:
         
         tk.Label(tile_size_frame, text="tile-size:").pack(side=tk.LEFT)
         
-        self.tile_size_var = tk.StringVar(value="512")
+        self.tile_size_var = self.string_var("tile_size", "512")
         self.tile_size_combo = ttk.Combobox(tile_size_frame, textvariable=self.tile_size_var,
                                    values=["default", "32", "64", "96", "128", "160", "192", "256", "288", "320", "352", "384", "416", "448", "480", "512"],
                                    state="readonly", width=25)
@@ -189,7 +191,7 @@ class VideoEnhancerApp:
                     save = cores[k]
                     tcs.append(f"{load}:{proc}:{save}")
         
-        self.thread_count_var = tk.StringVar(value="6:12:16")
+        self.thread_count_var = self.string_var("thread_count", "6:12:16")
         self.thread_count_combo = ttk.Combobox(thread_count_frame, textvariable=self.thread_count_var,
                                 #    values=["default", "2:2:2", "4:4:4", "4:8:10", "6:12:14"],
                                     values=tcs, state="readonly", width=25)
@@ -201,7 +203,7 @@ class VideoEnhancerApp:
         
         tk.Label(bit_rate_frame, text="b:v").pack(side=tk.LEFT)
         
-        self.bit_rate_var = tk.StringVar(value="45M")
+        self.bit_rate_var = self.string_var("bit_rate", "45M")
         self.bit_rate_combo = ttk.Combobox(bit_rate_frame, textvariable=self.bit_rate_var,
                                    values=["10M","15M","20M","25M","30M","35M","40M","45M","50M","55M","60M","65M","70M","75M","80M",],
                                    state="readonly", width=25)
@@ -213,7 +215,7 @@ class VideoEnhancerApp:
         
         tk.Label(max_rate_frame, text="max rate").pack(side=tk.LEFT)
         
-        self.max_rate_var = tk.StringVar(value="55M")
+        self.max_rate_var = self.string_var("max_rate", "55M")
         self.max_rate_combo = ttk.Combobox(max_rate_frame, textvariable=self.max_rate_var,
                                    values=["10M","15M","20M","25M","30M","35M","40M","45M","50M","55M","60M","65M","70M","75M","80M",],
                                    state="readonly", width=25)
@@ -233,7 +235,7 @@ class VideoEnhancerApp:
         # vls = self.tta_mode_combo.cget("values")
         # self.log(">>>>> vls", vls, vls.index("disadbwle"))
 
-        self.cut_head_sec_var = tk.StringVar(value="0")
+        self.cut_head_sec_var = self.string_var("cut_head_sec", "0")
         cut_head_frame = tk.Frame(self.params_frame)
         cut_head_frame.pack(fill=tk.X, padx=10, pady=5)
 
@@ -251,13 +253,24 @@ class VideoEnhancerApp:
         cut_tail_frame = tk.Frame(self.params_frame)
         cut_tail_frame.pack(fill=tk.X, padx=10, pady=5)
 
-        self.cut_tail_sec_var = tk.StringVar(value="0")
+        self.cut_tail_sec_var = self.string_var("cut_tail_sec", "0")
         self.cut_tail_label = tk.Label(cut_tail_frame, text="裁剪结尾N秒:")
         self.cut_tail_label.pack(side=tk.LEFT)
         self.cut_tail_combo = ttk.Combobox(cut_tail_frame, textvariable=self.cut_tail_sec_var,
                                    values=secs,
                                    width=25)
         self.cut_tail_combo.pack(side=tk.RIGHT)
+
+        # 裁剪fps
+        # cut_fps_frame = tk.Frame(self.params_frame)
+        # cut_fps_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        # tk.Label(cut_fps_frame, text="裁剪fps:").pack(side=tk.LEFT)
+        
+        # self.cut_fps_var = self.double_var("cut_fps", 0)
+        # self.cut_fps_spin = ttk.Spinbox(cut_fps_frame, textvariable=self.cut_fps_var,
+        #                             from_=0, to=100, increment=1, width=25)
+        # self.cut_fps_spin.pack(side=tk.RIGHT)
 
         # --- 工具提示窗口 (Toplevel) ---
         # 不要将它 pack() 或 grid() 到任何地方
@@ -275,7 +288,7 @@ class VideoEnhancerApp:
         
         tk.Label(fps_force_frame, text="fps force:").pack(side=tk.LEFT)
         
-        self.fps_force_var = tk.DoubleVar(value=0)
+        self.fps_force_var = self.double_var("fps_force", 0)
         self.fps_force_spin = ttk.Spinbox(fps_force_frame, textvariable=self.fps_force_var,
                                     from_=0, to=100, increment=1, width=25)
         self.fps_force_spin.pack(side=tk.RIGHT)
@@ -342,9 +355,20 @@ class VideoEnhancerApp:
         tk.Button(button_frame, text="退出", command=self.exit_application,
                  bg="#f44336", fg="white", font=("Arial", 10, "bold"),
                  padx=20).pack(side=tk.LEFT, padx=10)
+        
+    def string_var(self, key, val=""):
+        var = tk.StringVar(value=self.db.get(key, val))
+        self.configs[key] = var
+        return var
+            
+    def double_var(self, key, val=0):
+        var = tk.DoubleVar(value=self.db.get(key, val))
+        self.configs[key] = var
+        return var
             
     def save_configs(self):
-        pass
+        for key, var in self.configs.items():
+            self.db.set(key, var.get())
 
     def init_paths(self):
         """初始化必要的路径"""
@@ -1188,44 +1212,46 @@ class VideoEnhancerApp:
 
     def count_dir_frames_enhance(self):
         return len(os.listdir(self.dir_frames_enhance))
-    
-    def cut_video(self, video_path):
-        """裁剪视频"""
+
+    def cut_video_ffmpeg(self, video_path):
+        """
+        使用 ffmpeg-python 裁剪掉 VFR 视频末尾的 N 秒。
+        """
         try:
+            self.proc_state = ProcState.CUT
+
+            # 获取视频总时长
+            probe = ffmpeg.probe(video_path)
+            total_duration = float(probe['streams'][0]['duration']) # 通常取第一个流（视频流）
+
             head_sec = float(self.cut_head_sec_var.get())
             tail_sec = float(self.cut_tail_sec_var.get())
             self.log(f"正在裁剪视频({head_sec},{tail_sec})...")
-            self.proc_state = ProcState.CUT
 
             if head_sec <= 0 and tail_sec <= 0:
                 return True
-
-            video_clip = VideoFileClip(video_path)
-            total_duration = video_clip.duration
-
-            st = head_sec
-            et = total_duration - tail_sec
-            if st <= 0:
-                self.log(f"st({st}) <= 0")
-                return False
-            elif et <= 0:
-                self.log(f"et({et}) <= 0")
-                return False
-            elif st > et:
-                self.log(f"st({st}) > et({et})")
-                return False
             
+             # 计算新的开始时间和持续时间
+            new_start_time = head_sec
+            new_duration = total_duration - head_sec - tail_sec
+            
+            if new_duration <= 0:
+                raise ValueError(f"要移除的秒数 ({head_sec}) 不能大于或等于视频总时长 ({total_duration})。")
+
             file_name = os.path.basename(video_path)
             self.cut_video_path = os.path.join(self.dir_cut, file_name)
-            self.log(f"裁剪视频输出到: {self.cut_video_path}")
 
-            trimmed_clip = video_clip.subclipped(st, et)
-            trimmed_clip.write_videofile(self.cut_video_path, audio_codec='aac')
-
-            video_clip.close()
-            trimmed_clip.close()
+            # 构建 ffmpeg 流程图
+            # 使用 input 的 'ss' 和 't' 参数
+            stream = ffmpeg.input(video_path, ss=new_start_time, t=new_duration)
+            stream = ffmpeg.output(stream, self.cut_video_path, c='copy', avoid_negative_ts='make_zero')
+            
+            # 运行命令
+            ffmpeg.run(stream, overwrite_output=True)
+            self.log(f"裁剪视频已成功处理并保存至: {self.cut_video_path}")
 
             return True
+        
         except Exception as e:
             messagebox.showerror("错误", f"裁剪视频时出错: {str(e)}")
             self.log(f"裁剪视频时出错: {str(e)}")
@@ -1537,13 +1563,7 @@ class VideoEnhancerApp:
             messagebox.showerror("错误", f"合并视频时出错: {str(e)}")
             self.log(f"合并视频时出错: {str(e)}")
             return False
-            
-    # def update_progress(self, value):
-    #     """更新进度条"""
-    #     self.progress_var.set(value)
-    #     self.progress_label.config(text=f"{int(value)}%")
-    #     self.root.update()
-            
+
     def has_step(self, dst):
         step = self.step_var.get()
         if step == "all":
@@ -1574,7 +1594,7 @@ class VideoEnhancerApp:
 
             if not self.has_step("cut"):
                 pass
-            elif not self.cut_video(video_path):
+            elif not self.cut_video_ffmpeg(video_path):
                 return
             elif self.cut_video_path:
                 video_path = self.cut_video_path
@@ -1587,18 +1607,12 @@ class VideoEnhancerApp:
                 pass
             elif(not self.extract_frames(video_path)):
                 return
-                
-            # 更新进度
-            # self.update_progress(33)
-            
+
             # 步骤2: 增强帧
             if not self.has_step("enhance"):
                 pass
             elif not self.enhance_frames():
                 return
-                
-            # 更新进度
-            # self.update_progress(66)
             
             # 步骤3: 合并帧
             if not self.has_step("merge"):
@@ -1607,9 +1621,7 @@ class VideoEnhancerApp:
                 return
                 
             # 完成
-            # self.update_progress(100)
             self.log("视频增强流程完成")
-            # self.status_var.set("增强完成")
             
         except Exception as e:
             messagebox.showerror("错误", f"处理过程中发生错误: {str(e)}")
@@ -1624,8 +1636,6 @@ class VideoEnhancerApp:
         # 禁用开始按钮防止重复点击
         self.start_button.config(state="disabled")
         self.step_combo.config(state="disabled")
-        # self.progress_var.set(0)
-        # self.progress_label.config(text="0%")
         
         # 在新线程中运行增强过程
         thread = threading.Thread(target=self.enhancement_process)
