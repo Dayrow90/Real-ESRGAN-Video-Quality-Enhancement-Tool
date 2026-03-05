@@ -13,12 +13,13 @@ import time
 import math
 import av, moviepy
 import re
+import ffmpeg
 from moviepy import VideoFileClip
 from PIL import Image, ImageTk
-from config import ConfigManager
-import ffmpeg
-
 from enum import Enum
+from video_config import ConfigManager
+from video_setting import VideoSetting, VideoEnhancerSetting
+
 class ProcState(Enum):
     STOP    = 0
     CUT     = 1
@@ -29,14 +30,15 @@ class ProcState(Enum):
 class VideoEnhancerApp:
     def __init__(self, root):
         self.proc_state = ProcState.STOP
-        self.db = ConfigManager("video_enhancer.db")
-        self.configs = {}
-        
+
         self.root = root
         self.root.title("Real-ESRGAN 视频画质增强工具")
         self.root.geometry("800x900")  # 增大窗口尺寸以容纳注释
         self.root.minsize(800, 900)    # 设置最小尺寸
         self.root.resizable(True, True)
+        
+        db = ConfigManager("video_enhancer.db")
+        self.setting = VideoEnhancerSetting(db = db)
         
         # 获取项目根目录
         self.project_root = os.path.dirname(os.path.abspath(__file__))
@@ -52,9 +54,7 @@ class VideoEnhancerApp:
         
         # 初始化路径
         self.init_paths()
-        
-        # 绑定模型选择事件
-        self.model_var.trace('w', self.on_model_change)
+
         self.step_var.trace('w', self.on_step_change)
         self.video_path_var.trace('w', self.on_path_video_change)
 
@@ -74,6 +74,10 @@ class VideoEnhancerApp:
         # 标题
         # title_label = tk.Label(self.root, text="Real-ESRGAN 视频画质增强工具", font=("Arial", 16, "bold"))
         # title_label.pack(pady=10)
+
+        menubar = tk.Menu(self.root)
+        menubar.add_command(label="设置", command=self.open_setting)
+        self.root.config(menu=menubar)
         
         # 视频文件选择框
         video_frame = tk.Frame(self.root)
@@ -84,7 +88,7 @@ class VideoEnhancerApp:
         file_frame = tk.Frame(video_frame)
         file_frame.pack(fill=tk.X, pady=5)
         
-        self.video_path_var = tk.StringVar()
+        self.video_path_var = self.setting.get("video_path")
         tk.Entry(file_frame, textvariable=self.video_path_var, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True)
         
         tk.Button(file_frame, text="浏览", command=self.browse_video).pack(side=tk.RIGHT, padx=(5, 0))
@@ -98,127 +102,23 @@ class VideoEnhancerApp:
         file_frame = tk.Frame(video_out_frame)
         file_frame.pack(fill=tk.X, pady=5)
         
-        self.video_out_var = self.string_var("video_out")
+        self.video_out_var = self.setting.get("video_out")
         tk.Entry(file_frame, textvariable=self.video_out_var, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True)
         
         tk.Button(file_frame, text="浏览", command=self.browse_video_out).pack(side=tk.RIGHT, padx=(5, 0))
         
         # 参数设置框
         self.params_frame = tk.LabelFrame(self.root, text="增强参数", )
-        self.params_frame.pack(fill=tk.X, padx=20, pady=10)
-        self.params_frame.bind("<Button-1>", self.on_click_params_frame)
+        self.params_frame.pack(fill=tk.X, padx=20, pady=10)    
         
-        # 模型选择
-        model_frame = tk.Frame(self.params_frame)
-        model_frame.pack(fill=tk.X, padx=10, pady=5)
-        
-        tk.Label(model_frame, text="增强模型:").pack(side=tk.LEFT)
-        
-        self.model_var = self.string_var("model", "realesr-animevideov3")
-        self.model_combo = ttk.Combobox(model_frame, textvariable=self.model_var, 
-                                  values=["realesr-animevideov3", "realesrgan-x4plus", "realesrgan-x4plus-anime"],
-                                  state="readonly", width=25)
-        self.model_combo.pack(side=tk.RIGHT)
-        
-        # 模型用途说明
-        self.model_description_label = tk.Label(model_frame, text="通用动漫视频增强模型", 
-                                               font=("Arial", 8), fg="gray", wraplength=700, justify="left")
-        self.model_description_label.pack(anchor=tk.W, side=tk.RIGHT)
-        
-        # 缩放因子
-        scale_frame = tk.Frame(self.params_frame)
-        scale_frame.pack(fill=tk.X, padx=10, pady=5)
-        
-        tk.Label(scale_frame, text="缩放因子:").pack(side=tk.LEFT)
-        
-        self.scale_var = self.string_var("scale", "4")
-        self.scale_combo = ttk.Combobox(scale_frame, textvariable=self.scale_var,
-                                       values=["2", "3", "4"],
-                                       state="readonly", width=25)
-        self.scale_combo.pack(side=tk.RIGHT)
-
-        # 输出格式
-        format_frame = tk.Frame(self.params_frame)
-        format_frame.pack(fill=tk.X, padx=10, pady=5)
-        
-        tk.Label(format_frame, text="输出格式:").pack(side=tk.LEFT)
-        
-        self.format_var = self.string_var("format", "png")
-        self.format_combo = ttk.Combobox(format_frame, textvariable=self.format_var,
-                                   values=["jpg", "png"],
-                                   state="readonly", width=25)
-        self.format_combo.pack(side=tk.RIGHT)
-
-        # level
-        level_frame = tk.Frame(self.params_frame)
-        level_frame.pack(fill=tk.X, padx=10, pady=5)
-        
-        tk.Label(level_frame, text="level:").pack(side=tk.LEFT)
-        
-        self.level_var = self.string_var("level", "30")
-        self.level_combo = ttk.Combobox(level_frame, textvariable=self.level_var,
-                                   values=["30", "31", "40", "41", "42", "50", "51", "52"],
-                                   state="readonly", width=25)
-        self.level_combo.pack(side=tk.RIGHT)
-
-        # tile-size
-        tile_size_frame = tk.Frame(self.params_frame)
-        tile_size_frame.pack(fill=tk.X, padx=10, pady=5)
-        
-        tk.Label(tile_size_frame, text="tile-size:").pack(side=tk.LEFT)
-        
-        self.tile_size_var = self.string_var("tile_size", "512")
-        self.tile_size_combo = ttk.Combobox(tile_size_frame, textvariable=self.tile_size_var,
-                                   values=["default", "32", "64", "96", "128", "160", "192", "256", "288", "320", "352", "384", "416", "448", "480", "512"],
-                                   state="readonly", width=25)
-        self.tile_size_combo.pack(side=tk.RIGHT)
-
-
-        # thread count for load/proc/save
-        thread_count_frame = tk.Frame(self.params_frame)
-        thread_count_frame.pack(fill=tk.X, padx=10, pady=5)
-        
-        tk.Label(thread_count_frame, text="thread count for load/proc/save:").pack(side=tk.LEFT)
-
-        cores = ["2", "4", "6", "8", "10", "12", "14", "16"]
-        tcs = []
-        for i in range(len(cores)):
-            load = cores[i]
-            for j in range(len(cores)):
-                proc = cores[j]
-                for k in range(len(cores)):
-                    save = cores[k]
-                    tcs.append(f"{load}:{proc}:{save}")
-        
-        self.thread_count_var = self.string_var("thread_count", "6:12:16")
-        self.thread_count_combo = ttk.Combobox(thread_count_frame, textvariable=self.thread_count_var,
-                                #    values=["default", "2:2:2", "4:4:4", "4:8:10", "6:12:14"],
-                                    values=tcs, state="readonly", width=25)
-        self.thread_count_combo.pack(side=tk.RIGHT)
-
-        # b:v
-        bit_rate_frame = tk.Frame(self.params_frame)
-        bit_rate_frame.pack(fill=tk.X, padx=10, pady=5)
-        
-        tk.Label(bit_rate_frame, text="b:v").pack(side=tk.LEFT)
-        
-        self.bit_rate_var = self.string_var("bit_rate", "45M")
-        self.bit_rate_combo = ttk.Combobox(bit_rate_frame, textvariable=self.bit_rate_var,
-                                   values=["10M","15M","20M","25M","30M","35M","40M","45M","50M","55M","60M","65M","70M","75M","80M",],
-                                   state="readonly", width=25)
-        self.bit_rate_combo.pack(side=tk.RIGHT)
-
-        # max rate
-        max_rate_frame = tk.Frame(self.params_frame)
-        max_rate_frame.pack(fill=tk.X, padx=10, pady=5)
-        
-        tk.Label(max_rate_frame, text="max rate").pack(side=tk.LEFT)
-        
-        self.max_rate_var = self.string_var("max_rate", "55M")
-        self.max_rate_combo = ttk.Combobox(max_rate_frame, textvariable=self.max_rate_var,
-                                   values=["10M","15M","20M","25M","30M","35M","40M","45M","50M","55M","60M","65M","70M","75M","80M",],
-                                   state="readonly", width=25)
-        self.max_rate_combo.pack(side=tk.RIGHT)
+        self.model_var = self.setting.get("model", "realesr-animevideov3")  # 模型选择
+        self.scale_var = self.setting.get("scale", "4")                     # 缩放因子
+        self.format_var = self.setting.get("format", "png")                 # 输出格式
+        self.level_var = self.setting.get("level", "30")
+        self.tile_size_var = self.setting.get("tile_size", "512")
+        self.bit_rate_var = self.setting.get("bit_rate", "45M")
+        self.max_rate_var = self.setting.get("max_rate", "55M")
+        self.thread_count_var = self.setting.get("thread_count", "6:12:16")
 
         # tta mode
         # tta_mode_frame = tk.Frame(self.params_frame)
@@ -234,7 +134,7 @@ class VideoEnhancerApp:
         # vls = self.tta_mode_combo.cget("values")
         # self.log(">>>>> vls", vls, vls.index("disadbwle"))
 
-        self.cut_head_sec_var = self.string_var("cut_head_sec", "0")
+        self.cut_head_sec_var = self.setting.get("cut_head_sec", "0")
         cut_head_frame = tk.Frame(self.params_frame)
         cut_head_frame.pack(fill=tk.X, padx=10, pady=5)
 
@@ -252,7 +152,7 @@ class VideoEnhancerApp:
         cut_tail_frame = tk.Frame(self.params_frame)
         cut_tail_frame.pack(fill=tk.X, padx=10, pady=5)
 
-        self.cut_tail_sec_var = self.string_var("cut_tail_sec", "0")
+        self.cut_tail_sec_var = self.setting.get("cut_tail_sec", "0")
         self.cut_tail_label = tk.Label(cut_tail_frame, text="裁剪结尾N秒:")
         self.cut_tail_label.pack(side=tk.LEFT)
         self.cut_tail_combo = ttk.Combobox(cut_tail_frame, textvariable=self.cut_tail_sec_var,
@@ -287,7 +187,7 @@ class VideoEnhancerApp:
         
         tk.Label(fps_force_frame, text="fps force:").pack(side=tk.LEFT)
         
-        self.fps_force_var = self.double_var("fps_force", 0)
+        self.fps_force_var = self.setting.get("fps_force", 0)
         self.fps_force_spin = ttk.Spinbox(fps_force_frame, textvariable=self.fps_force_var,
                                     from_=0, to=100, increment=1, width=25)
         self.fps_force_spin.pack(side=tk.RIGHT)
@@ -355,19 +255,11 @@ class VideoEnhancerApp:
                  bg="#f44336", fg="white", font=("Arial", 10, "bold"),
                  padx=20).pack(side=tk.LEFT, padx=10)
         
-    def string_var(self, key, val=""):
-        var = tk.StringVar(value=self.db.get(key, val))
-        self.configs[key] = var
-        return var
-            
-    def double_var(self, key, val=0):
-        var = tk.DoubleVar(value=self.db.get(key, val))
-        self.configs[key] = var
-        return var
-            
+    def open_setting(self):
+        self.setting.showUI(self.root)
+
     def save_configs(self):
-        for key, var in self.configs.items():
-            self.db.set(key, var.get())
+        self.setting.save()
 
     def init_paths(self):
         """初始化必要的路径"""
@@ -403,32 +295,6 @@ class VideoEnhancerApp:
         total_frames = int(self.video_info.get("extract_frames") or 1)
         percent = (count/total_frames)*100
         self.log(f"frames enhanced: {percent:03.02f}% - {count}/{total_frames}")
-
-    def on_click_params_frame(self, *args):
-        self.params_frame.configure(height=1)
-
-    def on_model_change(self, *args):
-        """当模型选择改变时的处理函数"""
-        selected_model = self.model_var.get()
-        
-        # 更新模型用途说明
-        model_descriptions = {
-            "realesr-animevideov3": "通用动漫视频增强模型",
-            "realesrgan-x4plus": "通用视频增强模型，适用于各种类型的视频",
-            "realesrgan-x4plus-anime": "专门针对动漫图像优化的增强模型"
-        }
-        
-        description = model_descriptions.get(selected_model, "")
-        self.model_description_label.config(text=description)
-        
-        if selected_model in ["realesrgan-x4plus", "realesrgan-x4plus-anime"]:
-            # 固定缩放因子为4
-            self.scale_var.set("4")
-            # 禁用缩放因子选择
-            self.scale_combo.config(state="disabled")
-        else:
-            # 启用缩放因子选择
-            self.scale_combo.config(state="readonly")
 
     def on_step_change(self, *args):
         """当模型选择改变时的处理函数"""
