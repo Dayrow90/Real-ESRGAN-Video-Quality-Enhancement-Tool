@@ -28,6 +28,7 @@ class ProcState(Enum):
     ENHANCE = 3
     MERGE   = 4
     FINISH  = 5
+    NEXT    = 6
 
 class VideoEnhancerApp:
     def __init__(self, root):
@@ -254,7 +255,7 @@ class VideoEnhancerApp:
         self.task_menu.add_command(label="清空", command=self.on_menu_task_clear)
         self.task_menu.add_command(label="刷新", command=self.rfsh_tasks)
         self.task_menu.add_separator() # 添加一条分割线
-        self.task_menu.add_command(label="修改", command=self.on_menu_task_start)
+        self.task_menu.add_command(label="执行", command=self.on_menu_task_start)
         self.task_menu.add_command(label="修改", command=self.on_menu_task_setting)
         self.task_menu.add_command(label="删除", command=self.on_menu_task_delete)
 
@@ -382,18 +383,24 @@ class VideoEnhancerApp:
         self.log_text.after(60000, lambda: self.on_timer_enhance())
 
         if self.proc_state == ProcState.FINISH:
+            self.proc_state = ProcState.NEXT # 等待1-2分钟再自动执行下一个任务
+            self.log(f"将于1分钟后自动执行下一个任务...")
+            return
+        elif self.proc_state == ProcState.NEXT:
             self.proc_state = ProcState.STOP
             if len(self.setting.tasks) == 0:
                 return
             # 自动开始下一个任务
             task = self.setting.tasks[0]
             self.start_task(task[VideoSetting.VideoPath])
+            return
         elif self.proc_state == ProcState.ENHANCE:
             files = os.listdir(self.dir_frames_enhance)
             count = len(files)
             total_frames = int(self.video_info.get("extract_frames") or 1)
             percent = (count/total_frames)*100
             self.log(f"frames enhanced: {percent:03.02f}% - {count}/{total_frames}")
+            return
 
     def on_step_change(self, *args):
         """当模型选择改变时的处理函数"""
@@ -546,12 +553,12 @@ class VideoEnhancerApp:
                 return
 
             # 1. 加载视频文件
-            self.log(f"正在加载视频: {video_path}")
+            # self.log(f"正在加载视频: {video_path}")
             video_clip = VideoFileClip(video_path)
 
             # 获取视频总时长
             total_duration = video_clip.duration
-            self.log(f"视频总时长: {total_duration:.2f} 秒")
+            # self.log(f"视频总时长: {total_duration:.2f} 秒")
 
             if time_in_seconds < 0:
                 time_in_seconds = time_in_seconds + total_duration
@@ -561,7 +568,7 @@ class VideoEnhancerApp:
                 raise ValueError(f"指定的时间点 ({time_in_seconds}s) 超出了视频范围 (0 - {total_duration:.2f}s)。")
 
             # 2. 提取指定时间点的帧
-            self.log(f"正在截取第 {time_in_seconds}s 处的画面...")
+            # self.log(f"正在截取第 {time_in_seconds}s 处的画面...")
             frame_image = video_clip.get_frame(time_in_seconds)
 
             # 3. 将帧保存为图片
@@ -574,7 +581,7 @@ class VideoEnhancerApp:
                 os.makedirs(output_dir, exist_ok=True)
             
             result_image.save(output_image_path)
-            self.log(f"截图已成功保存到: {output_image_path}")
+            # self.log(f"截图已成功保存到: {output_image_path}")
 
             # 4. 关闭 clip 以释放资源
             video_clip.close()
@@ -1262,17 +1269,18 @@ class VideoEnhancerApp:
         """使用Real-ESRGAN增强帧"""
         try:
             self.log("正在增强视频帧...")
-            self.proc_state = ProcState.ENHANCE
             
             # 清空输出帧目录
             if self.count_dir_frames_enhance() > 0:
                 shutil.rmtree(self.dir_frames_enhance)
                 self.create_paths()
-            
+
             # 执行增强
             realesrgan_exe = os.path.join(self.project_root, "realesrgan-ncnn-vulkan.exe")
             if not os.path.exists(realesrgan_exe):
                 raise Exception("未找到realesrgan-ncnn-vulkan.exe文件，请确保该文件在项目根目录中")
+
+            self.proc_state = ProcState.ENHANCE
             
             # 构建命令参数
             cmd = [
