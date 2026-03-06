@@ -6,6 +6,7 @@ from enum import StrEnum
 import types
 
 class VideoSetting(StrEnum):
+    VideoPath       = "video_path"
     VideoOut        = "video_out"
     Model           = "model"
     Scale           = "scale"
@@ -18,11 +19,13 @@ class VideoSetting(StrEnum):
     CutHeadSec      = "cut_head_sec"
     CutTailSec      = "cut_tail_sec"
     FpsForce        = "fps_force"
+    RunStep         = "run_step"
 
 class VideoEnhancerSetting:
     def __init__(self, db):
-        self.db = db
-        self.vars = {}
+        self.db     = db
+        self.vars   = {}
+        self.tasks  = self.db.list_all_task()
 
     def get(self, name, default=""):
         var = self.vars.get(name)
@@ -214,5 +217,32 @@ class VideoEnhancerSetting:
     def save_close(self):
         self.save()
         self.dialog.destroy()
+
+    def set_task(self, task):
+        video_path = task[VideoSetting.VideoPath]
+        for idx, v in enumerate(self.tasks):
+            if v[VideoSetting.VideoPath] == video_path:
+                self.tasks[idx] = task
+                self.db.set_task(video_path, task)
+                return
+
+        self.tasks.append(task)
+        self.db.set_task(video_path, task)
+
+    def get_task(self, video_path):
+        for idx, v in enumerate(self.tasks):
+            if v[VideoSetting.VideoPath] == video_path:
+                return v
+
+    def delete_task(self, video_path):
+        for idx, v in enumerate(self.tasks):
+            if v[VideoSetting.VideoPath] == video_path:
+                del self.tasks[idx]
+                self.db.delete_task(video_path)
+    
+    def clear_task(self):
+        self.tasks = []
+        self.db.clear_task()
+
 
         

@@ -19,6 +19,7 @@ from PIL import Image, ImageTk
 from enum import Enum
 from video_config import ConfigManager
 from video_setting import VideoSetting, VideoEnhancerSetting
+from video_task import VideoEnhancerTaskCreate, VideoEnhancerTaskSetting
 
 class ProcState(Enum):
     STOP    = 0
@@ -26,6 +27,7 @@ class ProcState(Enum):
     EXTRACT = 2
     ENHANCE = 3
     MERGE   = 4
+    FINISH  = 5
 
 class VideoEnhancerApp:
     def __init__(self, root):
@@ -51,6 +53,7 @@ class VideoEnhancerApp:
         
         # 创建界面元素
         self.create_widgets()
+        self.rfsh_tasks()
         
         # 初始化路径
         self.init_paths()
@@ -69,16 +72,19 @@ class VideoEnhancerApp:
         self.img_video_cap = None
 
         self.on_timer_enhance()
+
+        if self.video_path_var.get():
+            self.on_path_video_change()
         
     def create_widgets(self):
-        # 标题
-        # title_label = tk.Label(self.root, text="Real-ESRGAN 视频画质增强工具", font=("Arial", 16, "bold"))
-        # title_label.pack(pady=10)
-
         menubar = tk.Menu(self.root)
+        menubar.add_command(label="新建任务", command=self.open_task_create)
         menubar.add_command(label="设置", command=self.open_setting)
         self.root.config(menu=menubar)
-        
+
+        self.create_task_treeview()
+        self.create_task_menu()
+
         # 视频文件选择框
         video_frame = tk.Frame(self.root)
         video_frame.pack(fill=tk.X, padx=20, pady=5)
@@ -108,7 +114,7 @@ class VideoEnhancerApp:
         tk.Button(file_frame, text="浏览", command=self.browse_video_out).pack(side=tk.RIGHT, padx=(5, 0))
         
         # 参数设置框
-        self.params_frame = tk.LabelFrame(self.root, text="增强参数", )
+        self.params_frame = tk.LabelFrame(self.root, text="执行参数", )
         self.params_frame.pack(fill=tk.X, padx=20, pady=10)    
         
         self.model_var = self.setting.get("model", "realesr-animevideov3")  # 模型选择
@@ -119,20 +125,6 @@ class VideoEnhancerApp:
         self.bit_rate_var = self.setting.get("bit_rate", "45M")
         self.max_rate_var = self.setting.get("max_rate", "55M")
         self.thread_count_var = self.setting.get("thread_count", "6:12:16")
-
-        # tta mode
-        # tta_mode_frame = tk.Frame(self.params_frame)
-        # tta_mode_frame.pack(fill=tk.X, padx=10, pady=5)
-        
-        # tk.Label(tta_mode_frame, text="tta mode:").pack(side=tk.LEFT)
-        
-        # self.tta_mode_var = tk.StringVar(value="disable")
-        # self.tta_mode_combo = ttk.Combobox(tta_mode_frame, textvariable=self.tta_mode_var,
-        #                            values=["enable", "disable"],
-        #                            state="readonly", width=25)
-        # self.tta_mode_combo.pack(side=tk.RIGHT)
-        # vls = self.tta_mode_combo.cget("values")
-        # self.log(">>>>> vls", vls, vls.index("disadbwle"))
 
         self.cut_head_sec_var = self.setting.get("cut_head_sec", "0")
         cut_head_frame = tk.Frame(self.params_frame)
@@ -159,17 +151,6 @@ class VideoEnhancerApp:
                                    values=secs,
                                    width=25)
         self.cut_tail_combo.pack(side=tk.RIGHT)
-
-        # 裁剪fps
-        # cut_fps_frame = tk.Frame(self.params_frame)
-        # cut_fps_frame.pack(fill=tk.X, padx=10, pady=5)
-        
-        # tk.Label(cut_fps_frame, text="裁剪fps:").pack(side=tk.LEFT)
-        
-        # self.cut_fps_var = self.double_var("cut_fps", 0)
-        # self.cut_fps_spin = ttk.Spinbox(cut_fps_frame, textvariable=self.cut_fps_var,
-        #                             from_=0, to=100, increment=1, width=25)
-        # self.cut_fps_spin.pack(side=tk.RIGHT)
 
         # --- 工具提示窗口 (Toplevel) ---
         # 不要将它 pack() 或 grid() 到任何地方
@@ -213,21 +194,7 @@ class VideoEnhancerApp:
         self.step_description_label = tk.Label(step_frame, text="裁剪视频 -> 提取帧 -> 增强帧 -> 合并帧", 
                                                font=("Arial", 8), fg="gray", wraplength=700, justify="left")
         self.step_description_label.pack(anchor=tk.W, side=tk.RIGHT)
-        
-        # # 进度条
-        # self.progress_var = tk.DoubleVar()
-        # self.progress_bar = ttk.Progressbar(self.root, variable=self.progress_var, maximum=100)
-        # self.progress_bar.pack(fill=tk.X, padx=20, pady=10)
-        
-        # # 进度百分比标签
-        # self.progress_label = tk.Label(self.root, text="0%")
-        # self.progress_label.pack()
-        
-        # # 状态标签
-        # self.status_var = tk.StringVar(value="就绪")
-        # self.status_label = tk.Label(self.root, textvariable=self.status_var, fg="blue")
-        # self.status_label.pack(pady=5)
-        
+
         # 日志框
         log_frame = tk.LabelFrame(self.root, text="运行日志")
         log_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
@@ -254,9 +221,135 @@ class VideoEnhancerApp:
         tk.Button(button_frame, text="退出", command=self.exit_application,
                  bg="#f44336", fg="white", font=("Arial", 10, "bold"),
                  padx=20).pack(side=tk.LEFT, padx=10)
+
+    def create_task_treeview(self):
+        # 任务列表
+        task_frame = tk.LabelFrame(self.root, text="排队任务")
+        task_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+
+        columns = ("video_file", "out_dir") # 添加 'actions' 列
+        self.task_treeview = ttk.Treeview(task_frame, columns=columns, show="headings", height=5)
+
+        # 定义列标题和宽度
+        self.task_treeview.heading("video_file", text="视频文件")
+        self.task_treeview.column("video_file", width=300, anchor=tk.W)
+
+        self.task_treeview.heading("out_dir", text="输出目录")
+        self.task_treeview.column("out_dir", width=150, anchor=tk.W)
+
+        # 添加滚动条
+        scrollbar = ttk.Scrollbar(task_frame, orient=tk.VERTICAL, command=self.task_treeview.yview)
+        self.task_treeview.configure(yscrollcommand=scrollbar.set)
+
+        self.task_treeview.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
+        # 绑定鼠标右键点击事件
+        self.task_treeview.bind("<Button-3>", self.show_task_menu) # Button-3 代表右键
+
+    def create_task_menu(self):
+        """创建右键菜单"""
+        self.task_menu = tk.Menu(self.root, tearoff=0)
+        self.task_menu.add_command(label="新建", command=self.open_task_create)
+        self.task_menu.add_command(label="清空", command=self.on_menu_task_clear)
+        self.task_menu.add_command(label="刷新", command=self.rfsh_tasks)
+        self.task_menu.add_separator() # 添加一条分割线
+        self.task_menu.add_command(label="修改", command=self.on_menu_task_start)
+        self.task_menu.add_command(label="修改", command=self.on_menu_task_setting)
+        self.task_menu.add_command(label="删除", command=self.on_menu_task_delete)
+
+    def show_task_menu(self, event):
+        """显示右键菜单"""
+        # 获取被右键点击的项目
+        item = self.task_treeview.identify_row(event.y) # identify_row 返回行的ID
+        column = self.task_treeview.identify_column(event.x) # identify_column 返回列的ID
+
+        # 如果右键点击在行上，则选中该行
+        if item:
+            # 选中被点击的行
+            self.task_treeview.selection_set(item)
+            self.task_treeview.focus(item) # 将焦点设置到该行
+
+        # 在鼠标指针位置显示菜单
+        try:
+            self.task_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            # tk_popup 是一个阻塞式菜单，必须用 tk_popup() 和 grab_release() 来确保菜单能正常关闭
+            self.task_menu.grab_release()
+
+    def rfsh_tasks(self):
+        for row in self.task_treeview.get_children():
+            self.task_treeview.delete(row)
+
+        for task in self.setting.tasks:
+            video_out = task.get(VideoSetting.VideoOut) or self.video_out_var.get()
+            values = (task[VideoSetting.VideoPath], video_out)
+            item_id = self.task_treeview.insert("", tk.END, values=values)
+
     def open_setting(self):
         self.setting.showUI(self.root)
+
+    def open_task_create(self):
+        VideoEnhancerTaskCreate(self)
+
+    def on_menu_task_clear(self):
+        self.setting.clear_task()
+        self.rfsh_tasks()
+
+    def on_menu_task_start(self):
+        selection = self.task_treeview.selection()
+        if not selection:
+            return
+
+        item_id = selection[0]
+        video_path = self.task_treeview.item(item_id, "values")[0]
+        self.start_task(video_path)
+
+    def on_menu_task_setting(self):
+        selection = self.task_treeview.selection()
+        if not selection:
+            return
+
+        item_id = selection[0]
+        video_path = self.task_treeview.item(item_id, "values")[0]
+        task = self.setting.get_task(video_path)
+        if not task:
+            return
+
+        VideoEnhancerTaskSetting(self, task)
+        self.rfsh_tasks()
+
+    def on_menu_task_delete(self):
+        selection = self.task_treeview.selection()
+        if not selection:
+            return
+
+        item_id = selection[0]
+        video_path = self.task_treeview.item(item_id, "values")[0]
+        self.setting.delete_task(video_path)
+        self.rfsh_tasks()
+
+    def start_task(self, video_path):
+        if self.is_running():
+            return
+
+        task = self.setting.get_task(video_path)
+        if not task:
+            return
+        
+        self.video_path_var.set(video_path)
+        self.video_out_var.set(task[VideoSetting.VideoOut])
+        self.cut_head_sec_var.set(task[VideoSetting.CutHeadSec])
+        self.cut_tail_sec_var.set(task[VideoSetting.CutTailSec])
+
+        self.start_enhancement()
+        
+    def is_running(self):
+        if self.proc_state == ProcState.STOP:
+            return False
+        elif self.proc_state == ProcState.FINISH:
+            return False
+        return True
 
     def save_configs(self):
         self.setting.save()
@@ -287,14 +380,20 @@ class VideoEnhancerApp:
         
     def on_timer_enhance(self):
         self.log_text.after(60000, lambda: self.on_timer_enhance())
-        if self.proc_state != ProcState.ENHANCE:
-            return
-        
-        files = os.listdir(self.dir_frames_enhance)
-        count = len(files)
-        total_frames = int(self.video_info.get("extract_frames") or 1)
-        percent = (count/total_frames)*100
-        self.log(f"frames enhanced: {percent:03.02f}% - {count}/{total_frames}")
+
+        if self.proc_state == ProcState.FINISH:
+            self.proc_state = ProcState.STOP
+            if len(self.setting.tasks) == 0:
+                return
+            # 自动开始下一个任务
+            task = self.setting.tasks[0]
+            self.start_task(task[VideoSetting.VideoPath])
+        elif self.proc_state == ProcState.ENHANCE:
+            files = os.listdir(self.dir_frames_enhance)
+            count = len(files)
+            total_frames = int(self.video_info.get("extract_frames") or 1)
+            percent = (count/total_frames)*100
+            self.log(f"frames enhanced: {percent:03.02f}% - {count}/{total_frames}")
 
     def on_step_change(self, *args):
         """当模型选择改变时的处理函数"""
@@ -331,12 +430,11 @@ class VideoEnhancerApp:
         self.log(f"video_info: {self.video_info }")
 
         level = self.cal_video_level(self.video_info )
+        self.log(f"level: {level}")
         level = level and str(int(float(level) * 10))
         self.log(f"level: {level}")
-
-        if level in self.level_combo.cget("values"):
+        if level:
             self.level_var.set(level)
-
 
     def on_enter_cut_head_label(self, *args):
         """鼠标进入按钮时的处理函数"""
@@ -1066,10 +1164,7 @@ class VideoEnhancerApp:
         """
         try:
             self.proc_state = ProcState.CUT
-
-            # 获取视频总时长
-            probe = ffmpeg.probe(video_path)
-            total_duration = float(probe['streams'][0]['duration']) # 通常取第一个流（视频流）
+            self.cut_video_path = None
 
             head_sec = float(self.cut_head_sec_var.get())
             tail_sec = float(self.cut_tail_sec_var.get())
@@ -1078,7 +1173,11 @@ class VideoEnhancerApp:
             if head_sec <= 0 and tail_sec <= 0:
                 return True
             
-             # 计算新的开始时间和持续时间
+            # 获取视频总时长
+            probe = ffmpeg.probe(video_path)
+            total_duration = float(probe['streams'][0]['duration']) # 通常取第一个流（视频流）
+
+            # 计算新的开始时间和持续时间
             new_start_time = head_sec
             new_duration = total_duration - head_sec - tail_sec
             
@@ -1469,6 +1568,9 @@ class VideoEnhancerApp:
                 
             # 完成
             self.log("视频增强流程完成")
+            self.setting.delete_task(video_path)
+            self.rfsh_tasks()
+            self.proc_state = ProcState.FINISH
             
         except Exception as e:
             messagebox.showerror("错误", f"处理过程中发生错误: {str(e)}")

@@ -46,6 +46,15 @@ class ConfigManager:
                 )
             ''')
             conn.commit()
+            
+            cursor = conn.cursor()
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS task (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                )
+            ''')
+            conn.commit()
 
     def set(self, key: str, value):
         """
@@ -110,3 +119,33 @@ class ConfigManager:
             rows = cursor.fetchall()
             # 反序列化所有值
             return [(row['key'], json.loads(row['value'])) for row in rows]
+
+    def list_all_task(self):
+        with self.get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT key, value FROM task")
+            rows = cursor.fetchall()
+            # 反序列化所有值
+            return [json.loads(row['value']) for row in rows]
+    
+    def set_task(self, key, task):
+        serialized_value = json.dumps(task)
+        with self.get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT OR REPLACE INTO task (key, value) VALUES (?, ?)",
+                (key, serialized_value)
+            )
+            conn.commit()
+
+    def delete_task(self, key):
+        with self.get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM task WHERE key = ?", (key,))
+            conn.commit()
+
+    def clear_task(self):
+        with self.get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM task ")
+            conn.commit()
