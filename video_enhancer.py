@@ -304,13 +304,18 @@ class VideoEnhancerApp:
         self.rfsh_tasks()
 
     def on_menu_task_start(self):
+        if self.is_running():
+            return
+
         selection = self.task_treeview.selection()
         if not selection:
             return
 
         item_id = selection[0]
         video_path = self.task_treeview.item(item_id, "values")[0]
-        self.start_task(video_path)
+        task = self.setting.get_task(video_path)
+        if task and self.show_task(task):
+            self.start_enhancement()
 
     def on_menu_task_setting(self):
         selection = self.task_treeview.selection()
@@ -336,21 +341,22 @@ class VideoEnhancerApp:
         self.setting.delete_task(video_path)
         self.rfsh_tasks()
 
-    def start_task(self, video_path):
-        if self.is_running():
+    def show_task(self, task):
+        if task:
+            pass
+        elif len(self.setting.tasks) > 0:
+            task = self.setting.tasks[0]
+        else:
             return
 
-        task = self.setting.get_task(video_path)
-        if not task:
-            return
-        
-        self.video_path_var.set(video_path)
+        # 自动开始下一个任务
+        self.video_path_var.set(task[VideoSetting.VideoPath])
         self.video_out_var.set(task[VideoSetting.VideoOut])
         self.cut_head_sec_var.set(task[VideoSetting.CutHeadSec])
         self.cut_tail_sec_var.set(task[VideoSetting.CutTailSec])
 
-        self.start_enhancement()
-        
+        return True
+
     def is_running(self):
         if self.proc_state == ProcState.STOP:
             return False
@@ -394,11 +400,8 @@ class VideoEnhancerApp:
             return
         elif self.proc_state == ProcState.NEXT:
             self.proc_state = ProcState.STOP
-            if len(self.setting.tasks) == 0:
-                return
-            # 自动开始下一个任务
-            task = self.setting.tasks[0]
-            self.start_task(task[VideoSetting.VideoPath])
+            if self.show_task():
+                self.start_enhancement()
             return
         elif self.proc_state == ProcState.ENHANCE:
             files = os.listdir(self.dir_frames_enhance)
