@@ -171,7 +171,7 @@ class VideoEnhancerApp:
         auto_next_frame.pack(fill=tk.X, padx=10, pady=5)
         tk.Label(auto_next_frame, text="自动下一个任务:").pack(side=tk.LEFT)
 
-        self.auto_next_var = tk.StringVar(value="auto")
+        self.auto_next_var = self.setting.get("auto_next", "auto")
         self.auto_next_combo = ttk.Combobox(auto_next_frame, textvariable=self.auto_next_var, 
                                   values=[
                                       "auto",        # 自动下一个
