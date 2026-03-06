@@ -239,6 +239,7 @@ class VideoEnhancerSetting:
             if v[VideoSetting.VideoPath] == video_path:
                 del self.tasks[idx]
                 self.db.delete_task(video_path)
+                return v
     
     def clear_task(self):
         self.tasks = []

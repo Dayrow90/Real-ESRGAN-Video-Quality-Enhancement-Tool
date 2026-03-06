@@ -1576,9 +1576,10 @@ class VideoEnhancerApp:
                 
             # 完成
             self.log("视频增强流程完成")
-            self.setting.delete_task(video_path)
-            self.rfsh_tasks()
-            self.proc_state = ProcState.FINISH
+
+            if self.setting.delete_task(self.video_path_var.get()):
+                self.rfsh_tasks()
+                self.proc_state = ProcState.FINISH
             
         except Exception as e:
             messagebox.showerror("错误", f"处理过程中发生错误: {str(e)}")
@@ -1586,7 +1587,9 @@ class VideoEnhancerApp:
         finally:
             self.start_button.config(state="normal")
             self.step_combo.config(state="normal")
-            self.proc_state = ProcState.STOP
+
+            if self.proc_state != ProcState.FINISH:
+                self.proc_state = ProcState.STOP
             
     def start_enhancement(self):
         """开始增强过程"""
