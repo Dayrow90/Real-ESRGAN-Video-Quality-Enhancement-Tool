@@ -246,12 +246,12 @@ class VideoEnhancerTaskBase:
                 return
 
             # 1. 加载视频文件
-            self.log(f"正在加载视频: {video_path}")
+            # self.log(f"正在加载视频: {video_path}")
             video_clip = VideoFileClip(video_path)
 
             # 获取视频总时长
             total_duration = video_clip.duration
-            self.log(f"视频总时长: {total_duration:.2f} 秒")
+            # self.log(f"视频总时长: {total_duration:.2f} 秒")
 
             if time_in_seconds < 0:
                 time_in_seconds = time_in_seconds + total_duration
@@ -261,7 +261,7 @@ class VideoEnhancerTaskBase:
                 raise ValueError(f"指定的时间点 ({time_in_seconds}s) 超出了视频范围 (0 - {total_duration:.2f}s)。")
 
             # 2. 提取指定时间点的帧
-            self.log(f"正在截取第 {time_in_seconds}s 处的画面...")
+            # self.log(f"正在截取第 {time_in_seconds}s 处的画面...")
             frame_image = video_clip.get_frame(time_in_seconds)
 
             # 3. 将帧保存为图片
@@ -274,7 +274,7 @@ class VideoEnhancerTaskBase:
                 os.makedirs(output_dir, exist_ok=True)
             
             result_image.save(output_image_path)
-            self.log(f"截图已成功保存到: {output_image_path}")
+            # self.log(f"截图已成功保存到: {output_image_path}")
 
             # 4. 关闭 clip 以释放资源
             video_clip.close()

@@ -98,7 +98,8 @@ class VideoEnhancerApp:
         self.video_path_var = self.setting.get("video_path")
         tk.Entry(file_frame, textvariable=self.video_path_var, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True)
         
-        tk.Button(file_frame, text="浏览", command=self.browse_video).pack(side=tk.RIGHT, padx=(5, 0))
+        self.browse_video_button = tk.Button(file_frame, text="浏览", command=self.browse_video)
+        self.browse_video_button.pack(side=tk.RIGHT, padx=(5, 0))
         
         # 视频输出选择框
         video_out_frame = tk.Frame(self.root)
@@ -112,8 +113,9 @@ class VideoEnhancerApp:
         self.video_out_var = self.setting.get("video_out")
         tk.Entry(file_frame, textvariable=self.video_out_var, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True)
         
-        tk.Button(file_frame, text="浏览", command=self.browse_video_out).pack(side=tk.RIGHT, padx=(5, 0))
-        
+        self.browse_video_out_button = tk.Button(file_frame, text="浏览", command=self.browse_video_out)
+        self.browse_video_out_button.pack(side=tk.RIGHT, padx=(5, 0))
+
         # 参数设置框
         self.params_frame = tk.LabelFrame(self.root, text="执行参数", )
         self.params_frame.pack(fill=tk.X, padx=20, pady=10)    
@@ -126,6 +128,7 @@ class VideoEnhancerApp:
         self.bit_rate_var = self.setting.get("bit_rate", "45M")
         self.max_rate_var = self.setting.get("max_rate", "55M")
         self.thread_count_var = self.setting.get("thread_count", "6:12:16")
+        self.fps_force_var = self.setting.get("fps_force", 0)
 
         self.cut_head_sec_var = self.setting.get("cut_head_sec", "0")
         cut_head_frame = tk.Frame(self.params_frame)
@@ -163,16 +166,19 @@ class VideoEnhancerApp:
         self.img_video_cap_label = tk.Label(self.tooltip_video_cap, bg='white', bd=1, relief='solid')
         self.img_video_cap_label.pack()
 
-        # 强制fps
-        fps_force_frame = tk.Frame(self.params_frame)
-        fps_force_frame.pack(fill=tk.X, padx=10, pady=5)
-        
-        tk.Label(fps_force_frame, text="fps force:").pack(side=tk.LEFT)
-        
-        self.fps_force_var = self.setting.get("fps_force", 0)
-        self.fps_force_spin = ttk.Spinbox(fps_force_frame, textvariable=self.fps_force_var,
-                                    from_=0, to=100, increment=1, width=25)
-        self.fps_force_spin.pack(side=tk.RIGHT)
+        # 自动下一个任务
+        auto_next_frame = tk.Frame(self.params_frame)
+        auto_next_frame.pack(fill=tk.X, padx=10, pady=5)
+        tk.Label(auto_next_frame, text="自动下一个任务:").pack(side=tk.LEFT)
+
+        self.auto_next_var = tk.StringVar(value="auto")
+        self.auto_next_combo = ttk.Combobox(auto_next_frame, textvariable=self.auto_next_var, 
+                                  values=[
+                                      "auto",        # 自动下一个
+                                      "stop",        # 停止
+                                    ],
+                                  state="readonly", width=25)
+        self.auto_next_combo.pack(side=tk.RIGHT)
 
         # 执行步骤
         step_frame = tk.Frame(self.params_frame)
@@ -1579,7 +1585,9 @@ class VideoEnhancerApp:
 
             if self.setting.delete_task(self.video_path_var.get()):
                 self.rfsh_tasks()
-                self.proc_state = ProcState.FINISH
+
+                if self.auto_next_var.get() == "auto":
+                    self.proc_state = ProcState.FINISH
             
         except Exception as e:
             messagebox.showerror("错误", f"处理过程中发生错误: {str(e)}")
@@ -1587,6 +1595,8 @@ class VideoEnhancerApp:
         finally:
             self.start_button.config(state="normal")
             self.step_combo.config(state="normal")
+            self.browse_video_button.config(state="normal")
+            self.browse_video_out_button.config(state="normal")
 
             if self.proc_state != ProcState.FINISH:
                 self.proc_state = ProcState.STOP
@@ -1596,6 +1606,8 @@ class VideoEnhancerApp:
         # 禁用开始按钮防止重复点击
         self.start_button.config(state="disabled")
         self.step_combo.config(state="disabled")
+        self.browse_video_button.config(state="disabled")
+        self.browse_video_out_button.config(state="disabled")
         
         # 在新线程中运行增强过程
         thread = threading.Thread(target=self.enhancement_process)

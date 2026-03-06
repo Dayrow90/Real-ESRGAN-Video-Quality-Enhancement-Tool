@@ -179,6 +179,17 @@ class VideoEnhancerSetting:
                                    state="readonly", width=25)
         self.max_rate_combo.pack(side=tk.RIGHT)
 
+        # 强制fps
+        fps_force_frame = tk.Frame(self.params_frame)
+        fps_force_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        tk.Label(fps_force_frame, text="fps force:").pack(side=tk.LEFT)
+        
+        self.fps_force_var = self.get("fps_force", 0)
+        self.fps_force_spin = ttk.Spinbox(fps_force_frame, textvariable=self.fps_force_var,
+                                    from_=0, to=100, increment=1, width=25)
+        self.fps_force_spin.pack(side=tk.RIGHT)
+
         # 控制按钮
         button_frame = tk.Frame(self.dialog)
         button_frame.pack(pady=20)
