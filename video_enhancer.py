@@ -17,7 +17,6 @@ import ffmpeg
 from moviepy import VideoFileClip
 from PIL import Image, ImageTk
 from enum import Enum
-from video_config import ConfigManager
 from video_setting import VideoSetting, VideoEnhancerSetting
 from video_task import VideoEnhancerTaskCreate, VideoEnhancerTaskSetting
 
@@ -33,6 +32,7 @@ class ProcState(Enum):
 class VideoEnhancerApp:
     def __init__(self, root):
         self.proc_state = ProcState.STOP
+        self.scale_fix_lower = None
 
         self.root = root
         self.root.title("Real-ESRGAN 视频画质增强工具")
@@ -40,8 +40,7 @@ class VideoEnhancerApp:
         self.root.minsize(800, 900)    # 设置最小尺寸
         self.root.resizable(True, True)
         
-        db = ConfigManager("video_enhancer.db")
-        self.setting = VideoEnhancerSetting(db = db)
+        self.setting = VideoEnhancerSetting("video_enhancer.db")
         
         # 获取项目根目录
         self.project_root = os.path.dirname(os.path.abspath(__file__))
@@ -260,8 +259,14 @@ class VideoEnhancerApp:
         self.task_menu.add_command(label="清空", command=self.on_menu_task_clear)
         self.task_menu.add_separator() # 添加一条分割线
         self.task_menu.add_command(label="执行", command=self.on_menu_task_start)
+        self.task_menu.add_command(label="显示", command=self.on_menu_task_show)
         self.task_menu.add_command(label="修改", command=self.on_menu_task_setting)
         self.task_menu.add_command(label="删除", command=self.on_menu_task_delete)
+        self.task_menu.add_separator() # 添加一条分割线
+        self.task_menu.add_command(label="上移到顶", command=self.on_menu_task_up_head)
+        self.task_menu.add_command(label="上移", command=self.on_menu_task_up)
+        self.task_menu.add_command(label="下移", command=self.on_menu_task_down)
+        self.task_menu.add_command(label="下移到底", command=self.on_menu_task_down_tail)
 
     def show_task_menu(self, event):
         """显示右键菜单"""
@@ -319,6 +324,20 @@ class VideoEnhancerApp:
         task = self.setting.get_task(video_path)
         if task and self.show_task(task):
             self.start_enhancement()
+    
+    def on_menu_task_show(self):
+        if self.is_running():
+            return
+
+        selection = self.task_treeview.selection()
+        if not selection:
+            return
+        
+        item_id = selection[0]
+        video_path = self.task_treeview.item(item_id, "values")[0]
+        task = self.setting.get_task(video_path)
+        if task:
+            self.show_task(task)
 
     def on_menu_task_setting(self):
         selection = self.task_treeview.selection()
@@ -332,6 +351,72 @@ class VideoEnhancerApp:
             return
 
         VideoEnhancerTaskSetting(self, task)
+        self.rfsh_tasks()
+
+    def on_menu_task_up_head(self, *args):
+        selection = self.task_treeview.selection()
+        if not selection:
+            return
+
+        item_id = selection[0]
+        video_path = self.task_treeview.item(item_id, "values")[0]
+        idx, task = self.setting.idx_task(video_path)
+        if not task:
+            return
+
+        del self.setting.tasks[idx]
+        self.setting.tasks = [task] + self.setting.tasks
+        self.rfsh_tasks()
+
+    def on_menu_task_up(self):
+        selection = self.task_treeview.selection()
+        if not selection:
+            return
+
+        item_id = selection[0]
+        video_path = self.task_treeview.item(item_id, "values")[0]
+        idx, task = self.setting.idx_task(video_path)
+        if not task:
+            return
+        elif idx == 0:
+            return
+
+        pre = self.setting.tasks[idx-1]
+        self.setting.tasks[idx-1] = task
+        self.setting.tasks[idx] = pre
+        self.rfsh_tasks()
+
+    def on_menu_task_down(self):
+        selection = self.task_treeview.selection()
+        if not selection:
+            return
+
+        item_id = selection[0]
+        video_path = self.task_treeview.item(item_id, "values")[0]
+        idx, task = self.setting.idx_task(video_path)
+        if not task:
+            return
+        elif idx == (len(self.setting.tasks) - 1):
+            return
+
+        ne = self.setting.tasks[idx+1]
+        self.setting.tasks[idx+1] = task
+        self.setting.tasks[idx] = ne
+        self.rfsh_tasks()
+
+    def on_menu_task_down_tail(self):
+        selection = self.task_treeview.selection()
+        if not selection:
+            return
+
+        item_id = selection[0]
+        video_path = self.task_treeview.item(item_id, "values")[0]
+        idx, task = self.setting.idx_task(video_path)
+        if not task:
+            return
+
+        del self.setting.tasks[idx]
+        self.setting.tasks.append(task)
         self.rfsh_tasks()
 
     def on_menu_task_delete(self):
@@ -408,7 +493,10 @@ class VideoEnhancerApp:
         elif self.proc_state == ProcState.NEXT:
             self.proc_state = ProcState.STOP
             if self.show_task():
+                self.step_var.set("all")
                 self.start_enhancement()
+            else:
+                self.log("任务列表为空...")
             return
         elif self.proc_state == ProcState.ENHANCE:
             files = os.listdir(self.dir_frames_enhance)
@@ -417,8 +505,6 @@ class VideoEnhancerApp:
             percent = (count/total_frames)*100
             self.log(f"frames enhanced: {percent:03.02f}% - {count}/{total_frames}")
             return
-        
-        # self.log(f"on_timer_enhance: {self.proc_state}")
 
     def on_step_change(self, *args):
         """当模型选择改变时的处理函数"""
@@ -455,10 +541,9 @@ class VideoEnhancerApp:
         self.log(f"video_info: {self.video_info }")
 
         level = self.cal_video_level(self.video_info )
-        self.log(f"level: {level}")
         level = level and str(int(float(level) * 10))
-        self.log(f"level: {level}")
         if level:
+            self.log(f"auto level: {level}")
             self.level_var.set(level)
 
     def on_enter_cut_head_label(self, *args):
@@ -1164,8 +1249,8 @@ class VideoEnhancerApp:
         info["file_size"] = os.path.getsize(video_path)
         info["total_frames"] = cap.get(cv2.CAP_PROP_FRAME_COUNT)
         info["fps"] = cap.get(cv2.CAP_PROP_FPS)
-        info["height"] = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         info["width"] = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        info["height"] = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
         total_sec = info["total_frames"] / info["fps"]
         info["total_sec"] = total_sec
@@ -1557,7 +1642,7 @@ class VideoEnhancerApp:
                 return
             
             self.save_configs()
-                
+
             self.log("-----------------------------------------------")
             self.log("step: " + self.step_var.get())
             self.log("video_path: " + video_path)
@@ -1573,6 +1658,17 @@ class VideoEnhancerApp:
                 self.video_info = self.get_video_info(video_path)
                 self.log(f"video_path: {video_path}")
                 self.log(f"video_info: {self.video_info}")
+
+            scale = self.scale_var.get()
+            if scale == "4":
+                scale = int(scale)
+                width = int(self.video_info["width"])
+                height = int(self.video_info["height"])
+                if (width * scale) >= 4096 or (height * scale) > 4096:
+                    self.log(f"scale({scale}) over for {width} * {height}, scale fix to 2...")
+                    self.scale_var.set("2")
+                    self.scale_fix_lower = "4"
+                    # self.on_path_video_change(None)
             
             # 步骤1: 提取帧
             if not self.has_step("extract"):
@@ -1595,11 +1691,13 @@ class VideoEnhancerApp:
             # 完成
             self.log("视频增强流程完成")
 
-            if self.setting.delete_task(self.video_path_var.get()):
-                self.rfsh_tasks()
+            if not self.setting.delete_task(self.video_path_var.get()):
+                return
 
-                if self.auto_next_var.get() == "auto":
-                    self.proc_state = ProcState.FINISH
+            self.rfsh_tasks()
+            if self.auto_next_var.get() == "auto":
+                self.proc_state = ProcState.FINISH
+                self.log(f"wait for {ProcState.NEXT}...")
             
         except Exception as e:
             messagebox.showerror("错误", f"处理过程中发生错误: {str(e)}")
@@ -1612,6 +1710,13 @@ class VideoEnhancerApp:
 
             if self.proc_state != ProcState.FINISH:
                 self.proc_state = ProcState.STOP
+            
+            if self.scale_fix_lower and self.scale_var.get() == "2":
+                scale = self.scale_var.get()
+                self.log(f"scale({scale}) fix to 4...")
+                self.scale_var.set("4")
+                self.scale_fix_lower = None
+
             
     def start_enhancement(self):
         """开始增强过程"""

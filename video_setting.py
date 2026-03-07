@@ -4,6 +4,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk, scrolledtext
 from enum import StrEnum
 import types
+from video_config import ConfigManager
 
 class VideoSetting(StrEnum):
     VideoPath       = "video_path"
@@ -22,8 +23,8 @@ class VideoSetting(StrEnum):
     RunStep         = "run_step"
 
 class VideoEnhancerSetting:
-    def __init__(self, db):
-        self.db     = db
+    def __init__(self, db_path):
+        self.db     = ConfigManager(db_path)
         self.vars   = {}
         self.tasks  = self.db.list_all_task()
 
@@ -244,6 +245,11 @@ class VideoEnhancerSetting:
         for idx, v in enumerate(self.tasks):
             if v[VideoSetting.VideoPath] == video_path:
                 return v
+
+    def idx_task(self, video_path):
+        for idx, v in enumerate(self.tasks):
+            if v[VideoSetting.VideoPath] == video_path:
+                return idx, v
 
     def delete_task(self, video_path):
         for idx, v in enumerate(self.tasks):
