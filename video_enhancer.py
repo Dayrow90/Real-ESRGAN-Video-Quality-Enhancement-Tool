@@ -80,46 +80,13 @@ class VideoEnhancerApp:
     def create_widgets(self):
         menubar = tk.Menu(self.root)
         menubar.add_command(label="新建任务", command=self.open_task_create)
+        menubar.add_command(label="自动执行", command=self.on_menu_next)
         menubar.add_command(label="设置", command=self.open_setting)
         self.root.config(menu=menubar)
 
         self.create_task_treeview()
         self.create_task_menu()
 
-        # 视频文件选择框
-        video_frame = tk.Frame(self.root)
-        video_frame.pack(fill=tk.X, padx=20, pady=5)
-        
-        tk.Label(video_frame, text="选择视频文件:").pack(anchor=tk.W)
-        
-        file_frame = tk.Frame(video_frame)
-        file_frame.pack(fill=tk.X, pady=5)
-        
-        self.video_path_var = self.setting.get("video_path")
-        tk.Entry(file_frame, textvariable=self.video_path_var, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True)
-        
-        self.browse_video_button = tk.Button(file_frame, text="浏览", command=self.browse_video)
-        self.browse_video_button.pack(side=tk.RIGHT, padx=(5, 0))
-        
-        # 视频输出选择框
-        video_out_frame = tk.Frame(self.root)
-        video_out_frame.pack(fill=tk.X, padx=20, pady=5)
-        
-        tk.Label(video_out_frame, text="选择输出目录:").pack(anchor=tk.W)
-        
-        file_frame = tk.Frame(video_out_frame)
-        file_frame.pack(fill=tk.X, pady=5)
-        
-        self.video_out_var = self.setting.get("video_out")
-        tk.Entry(file_frame, textvariable=self.video_out_var, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True)
-        
-        self.browse_video_out_button = tk.Button(file_frame, text="浏览", command=self.browse_video_out)
-        self.browse_video_out_button.pack(side=tk.RIGHT, padx=(5, 0))
-
-        # 参数设置框
-        self.params_frame = tk.LabelFrame(self.root, text="执行参数", )
-        self.params_frame.pack(fill=tk.X, padx=20, pady=10)    
-        
         self.model_var = self.setting.get("model", "realesr-animevideov3")  # 模型选择
         self.scale_var = self.setting.get("scale", "4")                     # 缩放因子
         self.format_var = self.setting.get("format", "png")                 # 输出格式
@@ -130,6 +97,57 @@ class VideoEnhancerApp:
         self.thread_count_var = self.setting.get("thread_count", "6:12:16")
         self.fps_force_var = self.setting.get("fps_force", 0)
 
+        # 参数设置框
+        self.params_frame = tk.LabelFrame(self.root, text="执行参数", )
+        self.params_frame.pack(fill=tk.X, padx=20, pady=10)    
+        
+        # 视频文件选择框
+        video_frame = tk.Frame(self.params_frame)
+        video_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        tk.Label(video_frame, text="视频文件:").pack(side=tk.LEFT)
+        
+        self.video_path_var = self.setting.get("video_path")
+        tk.Entry(video_frame, textvariable=self.video_path_var, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        self.browse_video_button = tk.Button(video_frame, text="浏览", command=self.browse_video)
+        self.browse_video_button.pack(side=tk.RIGHT, padx=(5, 0))
+        
+        # 视频输出选择框
+        video_out_frame = tk.Frame(self.params_frame)
+        video_out_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        tk.Label(video_out_frame, text="输出目录:").pack(side=tk.LEFT)
+        
+        self.video_out_var = self.setting.get("video_out")
+        tk.Entry(video_out_frame, textvariable=self.video_out_var, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        self.browse_video_out_button = tk.Button(video_out_frame, text="浏览", command=self.browse_video_out)
+        self.browse_video_out_button.pack(side=tk.RIGHT, padx=(5, 0))
+
+        # 执行步骤
+        step_frame = tk.Frame(self.params_frame)
+        step_frame.pack(fill=tk.X, padx=10, pady=5)
+        tk.Label(step_frame, text="执行步骤:").pack(side=tk.LEFT)
+        
+        self.step_var = tk.StringVar(value="all")
+        self.step_combo = ttk.Combobox(step_frame, textvariable=self.step_var, 
+                                  values=[
+                                      "all",        # 裁剪视频 -> 提取帧 -> 增强帧 -> 合并帧
+                                      "cut",        # 裁剪视频
+                                      "extract",    # 提取帧
+                                      "enhance",    # 增强帧
+                                      "merge",      # 合并帧
+                                    ],
+                                  state="readonly", width=25)
+        self.step_combo.pack(side=tk.RIGHT)
+
+        # 执行步骤说明
+        self.step_description_label = tk.Label(step_frame, text="裁剪视频 -> 提取帧 -> 增强帧 -> 合并帧", 
+                                               font=("Arial", 8), fg="gray", wraplength=700, justify="left")
+        self.step_description_label.pack(anchor=tk.W, side=tk.RIGHT)
+
+        # 裁剪开头N秒
         self.cut_head_sec_var = self.setting.get("cut_head_sec", "0")
         cut_head_frame = tk.Frame(self.params_frame)
         cut_head_frame.pack(fill=tk.X, padx=10, pady=5)
@@ -145,6 +163,7 @@ class VideoEnhancerApp:
                                    width=25)
         self.cut_head_combo.pack(side=tk.RIGHT)
 
+        # 裁剪结尾N秒
         cut_tail_frame = tk.Frame(self.params_frame)
         cut_tail_frame.pack(fill=tk.X, padx=10, pady=5)
 
@@ -180,28 +199,6 @@ class VideoEnhancerApp:
                                   state="readonly", width=25)
         self.auto_next_combo.pack(side=tk.RIGHT)
 
-        # 执行步骤
-        step_frame = tk.Frame(self.params_frame)
-        step_frame.pack(fill=tk.X, padx=10, pady=5)
-        tk.Label(step_frame, text="执行步骤:").pack(side=tk.LEFT)
-        
-        self.step_var = tk.StringVar(value="all")
-        self.step_combo = ttk.Combobox(step_frame, textvariable=self.step_var, 
-                                  values=[
-                                      "all",        # 裁剪视频 -> 提取帧 -> 增强帧 -> 合并帧
-                                      "cut",        # 裁剪视频
-                                      "extract",    # 提取帧
-                                      "enhance",    # 增强帧
-                                      "merge",      # 合并帧
-                                    ],
-                                  state="readonly", width=25)
-        self.step_combo.pack(side=tk.RIGHT)
-
-        # 执行步骤说明
-        self.step_description_label = tk.Label(step_frame, text="裁剪视频 -> 提取帧 -> 增强帧 -> 合并帧", 
-                                               font=("Arial", 8), fg="gray", wraplength=700, justify="left")
-        self.step_description_label.pack(anchor=tk.W, side=tk.RIGHT)
-
         # 日志框
         log_frame = tk.LabelFrame(self.root, text="运行日志")
         log_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
@@ -235,7 +232,7 @@ class VideoEnhancerApp:
         task_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
 
         columns = ("video_file", "out_dir") # 添加 'actions' 列
-        self.task_treeview = ttk.Treeview(task_frame, columns=columns, show="headings", height=5)
+        self.task_treeview = ttk.Treeview(task_frame, columns=columns, show="headings", height=1)
 
         # 定义列标题和宽度
         self.task_treeview.heading("video_file", text="视频文件")
@@ -258,8 +255,8 @@ class VideoEnhancerApp:
         """创建右键菜单"""
         self.task_menu = tk.Menu(self.root, tearoff=0)
         self.task_menu.add_command(label="新建", command=self.open_task_create)
-        self.task_menu.add_command(label="清空", command=self.on_menu_task_clear)
         self.task_menu.add_command(label="刷新", command=self.rfsh_tasks)
+        self.task_menu.add_command(label="清空", command=self.on_menu_task_clear)
         self.task_menu.add_separator() # 添加一条分割线
         self.task_menu.add_command(label="执行", command=self.on_menu_task_start)
         self.task_menu.add_command(label="修改", command=self.on_menu_task_setting)
@@ -298,6 +295,11 @@ class VideoEnhancerApp:
 
     def open_task_create(self):
         VideoEnhancerTaskCreate(self)
+
+    def on_menu_next(self):
+        self.proc_state = ProcState.NEXT
+        self.auto_next_var.set("auto")
+        self.log(f"将于1分钟内自动执行下一个任务...")
 
     def on_menu_task_clear(self):
         self.setting.clear_task()
@@ -341,12 +343,14 @@ class VideoEnhancerApp:
         self.setting.delete_task(video_path)
         self.rfsh_tasks()
 
-    def show_task(self, task):
+    def show_task(self, task=None):
         if task:
-            pass
+            self.log(f"show_task: {task}")
         elif len(self.setting.tasks) > 0:
             task = self.setting.tasks[0]
+            self.log(f"show_task first: {task}")
         else:
+            self.log(f"show_task nothing")
             return
 
         # 自动开始下一个任务
@@ -361,6 +365,8 @@ class VideoEnhancerApp:
         if self.proc_state == ProcState.STOP:
             return False
         elif self.proc_state == ProcState.FINISH:
+            return False
+        elif self.proc_state == ProcState.NEXT:
             return False
         return True
 
@@ -410,6 +416,8 @@ class VideoEnhancerApp:
             percent = (count/total_frames)*100
             self.log(f"frames enhanced: {percent:03.02f}% - {count}/{total_frames}")
             return
+        
+        self.log(f"on_timer_enhance: {self.proc_state}")
 
     def on_step_change(self, *args):
         """当模型选择改变时的处理函数"""
