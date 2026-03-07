@@ -80,7 +80,7 @@ class VideoEnhancerApp:
     def create_widgets(self):
         menubar = tk.Menu(self.root)
         menubar.add_command(label="新建任务", command=self.open_task_create)
-        menubar.add_command(label="自动执行", command=self.on_menu_next)
+        # menubar.add_command(label="自动执行", command=self.on_menu_next)
         menubar.add_command(label="设置", command=self.open_setting)
         self.root.config(menu=menubar)
 
@@ -255,6 +255,7 @@ class VideoEnhancerApp:
         """创建右键菜单"""
         self.task_menu = tk.Menu(self.root, tearoff=0)
         self.task_menu.add_command(label="新建", command=self.open_task_create)
+        self.task_menu.add_command(label="自动执行", command=self.on_menu_next)
         self.task_menu.add_command(label="刷新", command=self.rfsh_tasks)
         self.task_menu.add_command(label="清空", command=self.on_menu_task_clear)
         self.task_menu.add_separator() # 添加一条分割线
@@ -417,7 +418,7 @@ class VideoEnhancerApp:
             self.log(f"frames enhanced: {percent:03.02f}% - {count}/{total_frames}")
             return
         
-        self.log(f"on_timer_enhance: {self.proc_state}")
+        # self.log(f"on_timer_enhance: {self.proc_state}")
 
     def on_step_change(self, *args):
         """当模型选择改变时的处理函数"""
