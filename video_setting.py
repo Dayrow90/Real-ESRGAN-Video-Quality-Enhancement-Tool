@@ -387,9 +387,9 @@ class VideoEnhancerSetting:
         self.db.clear_task()
 
     def sort_tasks(self):
-        for idx, v in enumerate(self.tasks):
+        for _, v in enumerate(self.tasks):
             if v.get("pos") is None:
-                v["pos"] = idx
+                v["pos"] = 0
                 self.db.set_task(v[VideoSetting.VideoPath], v)
 
         def cmp(v1, v2):
@@ -401,10 +401,7 @@ class VideoEnhancerSetting:
 
     def fix_task_pos(self):
         for idx, v in enumerate(self.tasks):
-            if v.get("pos") is None:
-                v["pos"] = idx
-                self.db.set_task(v[VideoSetting.VideoPath], v)
-            elif v["pos"] != idx:
+            if v.get("pos") != idx:
                 v["pos"] = idx
                 self.db.set_task(v[VideoSetting.VideoPath], v)
 

@@ -113,7 +113,7 @@ class VideoEnhancerApp:
         # 参数设置框
         self.params_frame = tk.LabelFrame(
             self.root,
-            text="执行参数",
+            text="参数",
         )
         self.params_frame.pack(fill=tk.X, padx=20, pady=10)
 
@@ -256,7 +256,7 @@ class VideoEnhancerApp:
         self.auto_next_combo.pack(side=tk.RIGHT)
 
         # 日志框
-        log_frame = tk.LabelFrame(self.root, text="运行日志")
+        log_frame = tk.LabelFrame(self.root, text="日志")
         log_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
 
         self.log_text = scrolledtext.ScrolledText(
@@ -298,7 +298,7 @@ class VideoEnhancerApp:
 
     def create_task_treeview(self):
         # 任务列表
-        task_frame = tk.LabelFrame(self.root, text="排队任务")
+        task_frame = tk.LabelFrame(self.root, text="任务")
         task_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
 
         columns = ("video_file", "out_dir")  # 添加 'actions' 列
@@ -324,18 +324,19 @@ class VideoEnhancerApp:
 
         # 绑定鼠标右键点击事件
         self.task_treeview.bind("<Button-3>", self.show_task_menu)  # Button-3 代表右键
+        self.task_treeview.bind("<Double-1>", self.on_menu_task_setting)
 
     def create_task_menu(self):
         """创建右键菜单"""
         self.task_menu = tk.Menu(self.root, tearoff=0)
-        self.task_menu.add_command(label="新建", command=self.on_menu_task_create)
+        self.task_menu.add_command(label="新建任务", command=self.on_menu_task_create)
         self.task_menu.add_command(label="自动执行", command=self.on_menu_task_next)
-        self.task_menu.add_command(label="刷新", command=self.rfsh_tasks)
-        self.task_menu.add_command(label="清空", command=self.on_menu_task_clear)
+        self.task_menu.add_command(label="刷新列表", command=self.rfsh_tasks)
+        self.task_menu.add_command(label="清空列表", command=self.on_menu_task_clear)
         self.task_menu.add_separator()  # 添加一条分割线
         self.task_menu.add_command(label="执行", command=self.on_menu_task_start)
-        self.task_menu.add_command(label="显示", command=self.on_menu_task_show)
-        self.task_menu.add_command(label="修改", command=self.on_menu_task_setting)
+        self.task_menu.add_command(label="覆盖到参数", command=self.on_menu_task_show)
+        self.task_menu.add_command(label="设置", command=self.on_menu_task_setting)
         self.task_menu.add_command(label="删除", command=self.on_menu_task_delete)
         self.task_menu.add_separator()  # 添加一条分割线
         self.task_menu.add_command(label="上移到顶", command=self.on_menu_task_up_head)
@@ -422,7 +423,7 @@ class VideoEnhancerApp:
         if task:
             self.show_task(task)
 
-    def on_menu_task_setting(self):
+    def on_menu_task_setting(self, *args):
         selection = self.task_treeview.selection()
         if not selection:
             return
@@ -572,7 +573,7 @@ class VideoEnhancerApp:
         os.makedirs(self.dir_log, exist_ok=True)
 
     def on_timer_enhance(self):
-        self.log_text.after(60000, lambda: self.on_timer_enhance())
+        self.log_text.after(60000, self.on_timer_enhance)
 
         if self.proc_state == ProcState.FINISH:
             self.proc_state = ProcState.NEXT  # 等待1-2分钟再自动执行下一个任务
@@ -1224,7 +1225,7 @@ class VideoEnhancerApp:
                     pass
 
             # 等待进程结束
-            gone, alive = psutil.wait_procs(children, timeout=3)
+            _, alive = psutil.wait_procs(children, timeout=3)
             for p in alive:
                 try:
                     p.kill()
@@ -1297,8 +1298,6 @@ class VideoEnhancerApp:
         ext = os.path.splitext(video_path)[1]
 
         # 生成带时间戳的文件名，确保唯一性
-        import datetime
-
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         output_video_name = f"enhanced_{base_name}_{timestamp}{ext}"
         output_video_path = os.path.join(video_out_dir, output_video_name)
