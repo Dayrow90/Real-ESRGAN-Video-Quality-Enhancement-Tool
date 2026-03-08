@@ -5,6 +5,8 @@ from tkinter import filedialog, messagebox, ttk, scrolledtext
 from enum import StrEnum
 import types
 from video_config import ConfigManager
+from functools import cmp_to_key
+
 
 class VideoSetting(StrEnum):
     VideoPath       = "video_path"
@@ -27,17 +29,24 @@ class VideoEnhancerSetting:
         self.db     = ConfigManager(db_path)
         self.vars   = {}
         self.tasks  = self.db.list_all_task()
+        self.sort_tasks()
 
-    def get(self, name, default=""):
+    def gen_var(self, name, default=""):
         var = self.vars.get(name)
         if var == None:
-            cls = tk.StringVar
-            if isinstance(default, (int, float)):
-                cls = tk.DoubleVar
-            var = cls(value = self.db.get(name, default))
+            var = self.new_var(self.db.get(name, default))
             self.vars[name] = var
         return var
+
+    def new_var(self, default=""):
+        cls = tk.StringVar
+        if isinstance(default, (int, float)):
+            cls = tk.DoubleVar
+        return cls(value = default)
     
+    def get(self, name, default=""):
+        return self.gen_var(name, default).get()
+
     def save(self):
         for name, var in self.vars.items():
             self.db.set(name, var.get())
@@ -54,7 +63,7 @@ class VideoEnhancerSetting:
         self.dialog = tk.Toplevel(root)
         self.dialog.title("设置")
         self.dialog.resizable(True, True)
-
+        
         # 2. 设置子窗口大小
         sub_w, sub_h = 800, 400
         self.dialog.minsize(sub_w, sub_h)    # 设置最小尺寸
@@ -87,7 +96,7 @@ class VideoEnhancerSetting:
         
         tk.Label(model_frame, text="增强模型:").pack(side=tk.LEFT)
         
-        self.model_var = self.get("model", "realesr-animevideov3")
+        self.model_var = self.gen_var("model", "realesr-animevideov3")
         self.model_combo = ttk.Combobox(model_frame, textvariable=self.model_var, 
                                   values=["realesr-animevideov3", "realesrgan-x4plus", "realesrgan-x4plus-anime"],
                                   state="readonly", width=25)
@@ -99,7 +108,7 @@ class VideoEnhancerSetting:
 
         tk.Label(scale_frame, text="缩放因子:").pack(side=tk.LEFT)
 
-        self.scale_var = self.get("scale", "4")
+        self.scale_var = self.gen_var("scale", "4")
         self.scale_combo = ttk.Combobox(scale_frame, textvariable=self.scale_var,
                                        values=["2", "3", "4"],
                                        state="readonly", width=25)
@@ -126,7 +135,7 @@ class VideoEnhancerSetting:
                     save = cores[k]
                     tcs.append(f"{load}:{proc}:{save}")
 
-        self.thread_count_var = self.get("thread_count", "6:12:16")
+        self.thread_count_var = self.gen_var("thread_count", "6:12:16")
         self.thread_count_combo = ttk.Combobox(thread_count_frame, textvariable=self.thread_count_var,
                                 #    values=["default", "2:2:2", "4:4:4", "4:8:10", "6:12:14"],
                                     values=tcs, state="readonly", width=25)
@@ -138,7 +147,7 @@ class VideoEnhancerSetting:
         
         tk.Label(format_frame, text="输出格式:").pack(side=tk.LEFT)
         
-        self.format_var = self.get("format", "png")
+        self.format_var = self.gen_var("format", "png")
         self.format_combo = ttk.Combobox(format_frame, textvariable=self.format_var,
                                    values=["jpg", "png"],
                                    state="readonly", width=25)
@@ -150,7 +159,7 @@ class VideoEnhancerSetting:
         
         tk.Label(tile_size_frame, text="tile-size:").pack(side=tk.LEFT)
         
-        self.tile_size_var = self.get("tile_size", "512")
+        self.tile_size_var = self.gen_var("tile_size", "512")
         self.tile_size_combo = ttk.Combobox(tile_size_frame, textvariable=self.tile_size_var,
                                    values=["default", "32", "64", "96", "128", "160", "192", "256", "288", "320", "352", "384", "416", "448", "480", "512"],
                                    state="readonly", width=25)
@@ -162,7 +171,7 @@ class VideoEnhancerSetting:
         
         tk.Label(bit_rate_frame, text="b:v").pack(side=tk.LEFT)
         
-        self.bit_rate_var = self.get("bit_rate", "45M")
+        self.bit_rate_var = self.gen_var("bit_rate", "45M")
         self.bit_rate_combo = ttk.Combobox(bit_rate_frame, textvariable=self.bit_rate_var,
                                    values=["10M","15M","20M","25M","30M","35M","40M","45M","50M","55M","60M","65M","70M","75M","80M",],
                                    state="readonly", width=25)
@@ -174,7 +183,7 @@ class VideoEnhancerSetting:
         
         tk.Label(max_rate_frame, text="max rate").pack(side=tk.LEFT)
         
-        self.max_rate_var = self.get("max_rate", "55M")
+        self.max_rate_var = self.gen_var("max_rate", "55M")
         self.max_rate_combo = ttk.Combobox(max_rate_frame, textvariable=self.max_rate_var,
                                    values=["10M","15M","20M","25M","30M","35M","40M","45M","50M","55M","60M","65M","70M","75M","80M",],
                                    state="readonly", width=25)
@@ -186,7 +195,7 @@ class VideoEnhancerSetting:
         
         tk.Label(fps_force_frame, text="fps force:").pack(side=tk.LEFT)
         
-        self.fps_force_var = self.get("fps_force", 0)
+        self.fps_force_var = self.gen_var("fps_force", 0)
         self.fps_force_spin = ttk.Spinbox(fps_force_frame, textvariable=self.fps_force_var,
                                     from_=0, to=100, increment=1, width=25)
         self.fps_force_spin.pack(side=tk.RIGHT)
@@ -238,11 +247,16 @@ class VideoEnhancerSetting:
                 self.db.set_task(video_path, task)
                 return
 
+        pos = 1
+        if len(self.tasks) > 0:
+            pos = self.tasks[len(self.tasks) - 1]["pos"] + 1
+        task["pos"] = pos
+
         self.tasks.append(task)
         self.db.set_task(video_path, task)
 
-    def get_task(self, video_path):
-        for idx, v in enumerate(self.tasks):
+    def gen_task(self, video_path):
+        for _, v in enumerate(self.tasks):
             if v[VideoSetting.VideoPath] == video_path:
                 return v
 
@@ -262,5 +276,30 @@ class VideoEnhancerSetting:
         self.tasks = []
         self.db.clear_task()
 
+    def sort_tasks(self):
+        for idx, v in enumerate(self.tasks):
+            if v.get("pos") == None:
+                v["pos"] = idx
+                self.db.set_task(v[VideoSetting.VideoPath], v)
 
+        def cmp(v1, v2):
+            if v1["pos"] != v2["pos"]:
+                return v1["pos"] > v2["pos"]
+            return v1[VideoSetting.VideoPath] > v2[VideoSetting.VideoPath]
+
+        sorted(self.tasks, key=cmp_to_key(cmp))
+
+    def fix_task_pos(self):
+        for idx, v in enumerate(self.tasks):
+            if v.get("pos") == None:
+                v["pos"] = idx
+                self.db.set_task(v[VideoSetting.VideoPath], v)
+            elif v["pos"] != idx:
+                v["pos"] = idx
+                self.db.set_task(v[VideoSetting.VideoPath], v)
+
+    def save_tasks(self):
+        for _, v in enumerate(self.tasks):
+            video_path = v[VideoSetting.VideoPath]
+            self.db.set_task(video_path, v)
         

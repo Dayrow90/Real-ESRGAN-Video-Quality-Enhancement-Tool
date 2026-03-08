@@ -76,25 +76,27 @@ class VideoEnhancerApp:
         if self.video_path_var.get():
             self.on_path_video_change()
         
+    def gen_var(self, name, default=""):
+        return self.setting.gen_var(name, default)
+
     def create_widgets(self):
         menubar = tk.Menu(self.root)
-        menubar.add_command(label="新建任务", command=self.open_task_create)
+        # menubar.add_command(label="新建任务", command=self.open_task_create)
         # menubar.add_command(label="自动执行", command=self.on_menu_next)
-        menubar.add_command(label="设置", command=self.open_setting)
+        menubar.add_command(label="默认设置", command=self.open_setting)
         self.root.config(menu=menubar)
 
         self.create_task_treeview()
         self.create_task_menu()
 
-        self.model_var = self.setting.get("model", "realesr-animevideov3")  # 模型选择
-        self.scale_var = self.setting.get("scale", "4")                     # 缩放因子
-        self.format_var = self.setting.get("format", "png")                 # 输出格式
-        self.level_var = self.setting.get("level", "30")
-        self.tile_size_var = self.setting.get("tile_size", "512")
-        self.bit_rate_var = self.setting.get("bit_rate", "45M")
-        self.max_rate_var = self.setting.get("max_rate", "55M")
-        self.thread_count_var = self.setting.get("thread_count", "6:12:16")
-        self.fps_force_var = self.setting.get("fps_force", 0)
+        self.model_var = self.gen_var("model", "realesr-animevideov3")  # 模型选择
+        self.format_var = self.gen_var("format", "png")                 # 输出格式
+        self.level_var = self.gen_var("level", "30")
+        self.tile_size_var = self.gen_var("tile_size", "512")
+        self.bit_rate_var = self.gen_var("bit_rate", "45M")
+        self.max_rate_var = self.gen_var("max_rate", "55M")
+        self.thread_count_var = self.gen_var("thread_count", "6:12:16")
+        self.fps_force_var = self.gen_var("fps_force", 0)
 
         # 参数设置框
         self.params_frame = tk.LabelFrame(self.root, text="执行参数", )
@@ -106,7 +108,7 @@ class VideoEnhancerApp:
         
         tk.Label(video_frame, text="视频文件:").pack(side=tk.LEFT)
         
-        self.video_path_var = self.setting.get("video_path")
+        self.video_path_var = self.gen_var("video_path")
         tk.Entry(video_frame, textvariable=self.video_path_var, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True)
         
         self.browse_video_button = tk.Button(video_frame, text="浏览", command=self.browse_video)
@@ -118,7 +120,7 @@ class VideoEnhancerApp:
         
         tk.Label(video_out_frame, text="输出目录:").pack(side=tk.LEFT)
         
-        self.video_out_var = self.setting.get("video_out")
+        self.video_out_var = self.gen_var("video_out")
         tk.Entry(video_out_frame, textvariable=self.video_out_var, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True)
         
         self.browse_video_out_button = tk.Button(video_out_frame, text="浏览", command=self.browse_video_out)
@@ -146,8 +148,20 @@ class VideoEnhancerApp:
                                                font=("Arial", 8), fg="gray", wraplength=700, justify="left")
         self.step_description_label.pack(anchor=tk.W, side=tk.RIGHT)
 
+        # 缩放因子
+        scale_frame = tk.Frame(self.params_frame)
+        scale_frame.pack(fill=tk.X, padx=10, pady=5)
+
+        tk.Label(scale_frame, text="缩放因子:").pack(side=tk.LEFT)
+
+        self.scale_var = self.gen_var("scale", "4")
+        self.scale_combo = ttk.Combobox(scale_frame, textvariable=self.scale_var,
+                                       values=["2", "3", "4"],
+                                       state="readonly", width=25)
+        self.scale_combo.pack(side=tk.RIGHT)
+
         # 裁剪开头N秒
-        self.cut_head_sec_var = self.setting.get("cut_head_sec", "0")
+        self.cut_head_sec_var = self.gen_var("cut_head_sec", "0")
         cut_head_frame = tk.Frame(self.params_frame)
         cut_head_frame.pack(fill=tk.X, padx=10, pady=5)
 
@@ -166,7 +180,7 @@ class VideoEnhancerApp:
         cut_tail_frame = tk.Frame(self.params_frame)
         cut_tail_frame.pack(fill=tk.X, padx=10, pady=5)
 
-        self.cut_tail_sec_var = self.setting.get("cut_tail_sec", "0")
+        self.cut_tail_sec_var = self.gen_var("cut_tail_sec", "0")
         self.cut_tail_label = tk.Label(cut_tail_frame, text="裁剪结尾N秒:")
         self.cut_tail_label.pack(side=tk.LEFT)
         self.cut_tail_combo = ttk.Combobox(cut_tail_frame, textvariable=self.cut_tail_sec_var,
@@ -189,7 +203,7 @@ class VideoEnhancerApp:
         auto_next_frame.pack(fill=tk.X, padx=10, pady=5)
         tk.Label(auto_next_frame, text="自动下一个任务:").pack(side=tk.LEFT)
 
-        self.auto_next_var = self.setting.get("auto_next", "auto")
+        self.auto_next_var = self.gen_var("auto_next", "auto")
         self.auto_next_combo = ttk.Combobox(auto_next_frame, textvariable=self.auto_next_var, 
                                   values=[
                                       "auto",        # 自动下一个
@@ -321,7 +335,7 @@ class VideoEnhancerApp:
 
         item_id = selection[0]
         video_path = self.task_treeview.item(item_id, "values")[0]
-        task = self.setting.get_task(video_path)
+        task = self.setting.gen_task(video_path)
         if task and self.show_task(task):
             self.start_enhancement()
     
@@ -335,7 +349,7 @@ class VideoEnhancerApp:
         
         item_id = selection[0]
         video_path = self.task_treeview.item(item_id, "values")[0]
-        task = self.setting.get_task(video_path)
+        task = self.setting.gen_task(video_path)
         if task:
             self.show_task(task)
 
@@ -346,7 +360,7 @@ class VideoEnhancerApp:
 
         item_id = selection[0]
         video_path = self.task_treeview.item(item_id, "values")[0]
-        task = self.setting.get_task(video_path)
+        task = self.setting.gen_task(video_path)
         if not task:
             return
 
@@ -366,6 +380,7 @@ class VideoEnhancerApp:
 
         del self.setting.tasks[idx]
         self.setting.tasks = [task] + self.setting.tasks
+        self.setting.fix_task_pos()
         self.rfsh_tasks()
 
     def on_menu_task_up(self):
@@ -384,6 +399,7 @@ class VideoEnhancerApp:
         pre = self.setting.tasks[idx-1]
         self.setting.tasks[idx-1] = task
         self.setting.tasks[idx] = pre
+        self.setting.fix_task_pos()
         self.rfsh_tasks()
 
     def on_menu_task_down(self):
@@ -402,6 +418,7 @@ class VideoEnhancerApp:
         ne = self.setting.tasks[idx+1]
         self.setting.tasks[idx+1] = task
         self.setting.tasks[idx] = ne
+        self.setting.fix_task_pos()
         self.rfsh_tasks()
 
     def on_menu_task_down_tail(self):
@@ -417,6 +434,7 @@ class VideoEnhancerApp:
 
         del self.setting.tasks[idx]
         self.setting.tasks.append(task)
+        self.setting.fix_task_pos()
         self.rfsh_tasks()
 
     def on_menu_task_delete(self):
@@ -440,10 +458,9 @@ class VideoEnhancerApp:
             return
 
         # 自动开始下一个任务
-        self.video_path_var.set(task[VideoSetting.VideoPath])
-        self.video_out_var.set(task[VideoSetting.VideoOut])
-        self.cut_head_sec_var.set(task[VideoSetting.CutHeadSec])
-        self.cut_tail_sec_var.set(task[VideoSetting.CutTailSec])
+        for key, val in task.items():
+            var = self.gen_var(key, val)
+            var.set(val)
 
         return True
 
@@ -782,7 +799,7 @@ class VideoEnhancerApp:
                 }
 
         except Exception as e:
-            self.log(f"分析视频时出错: {e}", file=sys.stderr)
+            self.log(f"分析视频时出错: {e}")
             return None
         
     def count_decoded_frames(self, video_path):

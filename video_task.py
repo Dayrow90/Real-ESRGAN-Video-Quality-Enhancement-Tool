@@ -15,13 +15,11 @@ class VideoEnhancerTaskBase:
         self.dialog     = None
         self.vars       = {}
 
-    def get(self, key, default="", skipSetting=False):
+    def gen_var(self, key, default=""):
         var = self.vars.get(key)
         if not var:
-            if skipSetting:
-                var = tk.StringVar(value=default)
-            else:
-                var = self.setting.get(key, default)
+            default = self.setting.get(key, default)
+            var = self.setting.new_var(default)
             self.vars[key] = var
         return var
 
@@ -66,7 +64,7 @@ class VideoEnhancerTaskBase:
         file_frame = tk.Frame(video_frame)
         file_frame.pack(fill=tk.X, pady=5)
         
-        self.video_path_var = self.get(VideoSetting.VideoPath, "", True)
+        self.video_path_var = self.gen_var(VideoSetting.VideoPath)
         tk.Entry(file_frame, textvariable=self.video_path_var, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True)
         
         tk.Button(file_frame, text="浏览", command=self.browse_video).pack(side=tk.RIGHT, padx=(5, 0))
@@ -80,7 +78,7 @@ class VideoEnhancerTaskBase:
         file_frame = tk.Frame(video_out_frame)
         file_frame.pack(fill=tk.X, pady=5)
         
-        self.video_out_var = self.get(VideoSetting.VideoOut)
+        self.video_out_var = self.gen_var(VideoSetting.VideoOut)
         tk.Entry(file_frame, textvariable=self.video_out_var, state="readonly").pack(side=tk.LEFT, fill=tk.X, expand=True)
         
         tk.Button(file_frame, text="浏览", command=self.browse_video_out).pack(side=tk.RIGHT, padx=(5, 0))
@@ -89,7 +87,20 @@ class VideoEnhancerTaskBase:
         self.params_frame = tk.LabelFrame(self.dialog, text="执行参数", )
         self.params_frame.pack(fill=tk.X, padx=20, pady=10)    
         
-        self.cut_head_sec_var = self.get(VideoSetting.CutHeadSec, "0")
+        # 缩放因子
+        scale_frame = tk.Frame(self.params_frame)
+        scale_frame.pack(fill=tk.X, padx=10, pady=5)
+
+        tk.Label(scale_frame, text="缩放因子:").pack(side=tk.LEFT)
+
+        self.scale_var = self.gen_var(VideoSetting.Scale, "4")
+        self.scale_combo = ttk.Combobox(scale_frame, textvariable=self.scale_var,
+                                       values=["2", "3", "4"],
+                                       state="readonly", width=25)
+        self.scale_combo.pack(side=tk.RIGHT)
+
+        # 裁剪开头N秒
+        self.cut_head_sec_var = self.gen_var(VideoSetting.CutHeadSec, "0")
         cut_head_frame = tk.Frame(self.params_frame)
         cut_head_frame.pack(fill=tk.X, padx=10, pady=5)
 
@@ -107,7 +118,8 @@ class VideoEnhancerTaskBase:
         cut_tail_frame = tk.Frame(self.params_frame)
         cut_tail_frame.pack(fill=tk.X, padx=10, pady=5)
 
-        self.cut_tail_sec_var = self.get(VideoSetting.CutTailSec, "0")
+        # 裁剪结尾N秒
+        self.cut_tail_sec_var = self.gen_var(VideoSetting.CutTailSec, "0")
         self.cut_tail_label = tk.Label(cut_tail_frame, text="裁剪结尾N秒:")
         self.cut_tail_label.pack(side=tk.LEFT)
         self.cut_tail_combo = ttk.Combobox(cut_tail_frame, textvariable=self.cut_tail_sec_var,
@@ -327,6 +339,7 @@ class VideoEnhancerTaskCreate(VideoEnhancerTaskBase):
         
     def create_widgets(self):
         VideoEnhancerTaskBase.create_widgets(self, "创建任务")
+        self.video_path_var.set("")
         
         # 控制按钮
         button_frame = tk.Frame(self.dialog)
@@ -344,17 +357,15 @@ class VideoEnhancerTaskCreate(VideoEnhancerTaskBase):
 
 
     def on_click_create(self):
-        task = {
-            VideoSetting.VideoPath  : self.video_path_var.get(),
-            VideoSetting.VideoOut   : self.video_out_var.get(),
-            VideoSetting.CutHeadSec : self.cut_head_sec_var.get(),
-            VideoSetting.CutTailSec : self.cut_tail_sec_var.get(),
-        }
+        task = {}
+        for key, var in self.vars.items():
+            task[key] = var.get()
+
         self.setting.set_task(task)
         self.setting.save()
         self.dialog.destroy()
         self.parent.rfsh_tasks()
-        self.log(f"创建任务: {task}")
+        self.log(f"创建任务: {task[VideoSetting.VideoPath]}")
 
 class VideoEnhancerTaskSetting(VideoEnhancerTaskBase):
     def __init__(self, parent, task):
@@ -362,7 +373,7 @@ class VideoEnhancerTaskSetting(VideoEnhancerTaskBase):
         self.create_widgets()
 
         for key, val in task.items():
-            var = self.get(key)
+            var = self.gen_var(key)
             var.set(val)
         
     def create_widgets(self):
@@ -384,14 +395,12 @@ class VideoEnhancerTaskSetting(VideoEnhancerTaskBase):
 
 
     def on_click_save(self):
-        task = {
-            VideoSetting.VideoPath  : self.video_path_var.get(),
-            VideoSetting.VideoOut   : self.video_out_var.get(),
-            VideoSetting.CutHeadSec : self.cut_head_sec_var.get(),
-            VideoSetting.CutTailSec : self.cut_tail_sec_var.get(),
-        }
+        task = {}
+        for key, var in self.vars.items():
+            task[key] = var.get()
+
         self.setting.set_task(task)
         self.setting.save()
         self.dialog.destroy()
         self.parent.rfsh_tasks()
-        self.log(f"保存任务: {task}")
+        self.log(f"创建任务: {task[VideoSetting.VideoPath]}")
