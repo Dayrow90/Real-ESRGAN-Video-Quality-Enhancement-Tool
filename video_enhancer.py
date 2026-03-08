@@ -85,9 +85,9 @@ class VideoEnhancerApp:
 
     def create_widgets(self):
         menubar = tk.Menu(self.root)
-        # menubar.add_command(label="新建任务", command=self.open_task_create)
-        # menubar.add_command(label="自动执行", command=self.on_menu_next)
-        menubar.add_command(label="默认设置", command=self.open_setting)
+        # menubar.add_command(label="新建任务", command=self.on_menu_task_create)
+        # menubar.add_command(label="自动执行", command=self.on_menu_task_next)
+        menubar.add_command(label="默认设置", command=self.on_menu_open_setting)
         self.root.config(menu=menubar)
 
         self.create_task_treeview()
@@ -320,8 +320,8 @@ class VideoEnhancerApp:
     def create_task_menu(self):
         """创建右键菜单"""
         self.task_menu = tk.Menu(self.root, tearoff=0)
-        self.task_menu.add_command(label="新建", command=self.open_task_create)
-        self.task_menu.add_command(label="自动执行", command=self.on_menu_next)
+        self.task_menu.add_command(label="新建", command=self.on_menu_task_create)
+        self.task_menu.add_command(label="自动执行", command=self.on_menu_task_next)
         self.task_menu.add_command(label="刷新", command=self.rfsh_tasks)
         self.task_menu.add_command(label="清空", command=self.on_menu_task_clear)
         self.task_menu.add_separator()  # 添加一条分割线
@@ -365,10 +365,10 @@ class VideoEnhancerApp:
             values = (task[VideoSetting.VideoPath], video_out)
             self.task_treeview.insert("", tk.END, values=values)
 
-    def open_setting(self):
+    def on_menu_open_setting(self):
         self.setting.showUI(self.root)
 
-    def open_task_create(self):
+    def on_menu_task_create(self):
         task = None
         selection = self.task_treeview.selection()
         if selection:
@@ -377,7 +377,7 @@ class VideoEnhancerApp:
             task = self.setting.gen_task(video_path)
         VideoEnhancerTaskCreate(self, task)
 
-    def on_menu_next(self):
+    def on_menu_task_next(self):
         self.proc_state = ProcState.NEXT
         self.auto_next_var.set("auto")
         self.log("将于1分钟内自动执行下一个任务...")
@@ -518,7 +518,7 @@ class VideoEnhancerApp:
             self.log("show_task nothing")
             return
 
-        # 自动开始下一个任务
+        # 显示任务信息
         for key, val in task.items():
             var = self.gen_var(key, val)
             var.set(val)
