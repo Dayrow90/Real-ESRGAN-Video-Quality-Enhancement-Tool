@@ -369,7 +369,13 @@ class VideoEnhancerApp:
         self.setting.showUI(self.root)
 
     def open_task_create(self):
-        VideoEnhancerTaskCreate(self)
+        task = None
+        selection = self.task_treeview.selection()
+        if selection:
+            item_id = selection[0]
+            video_path = self.task_treeview.item(item_id, "values")[0]
+            task = self.setting.gen_task(video_path)
+        VideoEnhancerTaskCreate(self, task)
 
     def on_menu_next(self):
         self.proc_state = ProcState.NEXT
@@ -1692,7 +1698,7 @@ class VideoEnhancerApp:
                 # '-c:v', 'h264_nvenc',         # 使用NVIDIA H.264编码器
                 # '-c:v', 'hevc_vaapi',         # 使用NVIDIA  H.265/HEVC (VAAPI)编码器
                 "-c:v",
-                "hevc_vulkan",  # 使用NVIDIA  H.265/HEVC (Vulkan)编码器
+                "h264_nvenc",  # 使用NVIDIA H.264编码器
                 # "-preset", "fast",  # 使用快速编码预设
                 "-preset",
                 "p6",

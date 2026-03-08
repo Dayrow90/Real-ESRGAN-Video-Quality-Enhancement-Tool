@@ -360,13 +360,18 @@ class VideoEnhancerTaskBase:
 
 
 class VideoEnhancerTaskCreate(VideoEnhancerTaskBase):
-    def __init__(self, parent):
+    def __init__(self, parent, task=None):
         VideoEnhancerTaskBase.__init__(self, parent)
         self.create_widgets()
 
+        if task:
+            for key, val in task.items():
+                var = self.gen_var(key, val)
+                var.set(val)
+        self.video_path_var.set("")
+
     def create_widgets(self):
         VideoEnhancerTaskBase.create_widgets(self, "创建任务")
-        self.video_path_var.set("")
 
         # 控制按钮
         button_frame = tk.Frame(self.dialog)
