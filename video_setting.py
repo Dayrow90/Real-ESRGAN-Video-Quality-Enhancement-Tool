@@ -55,6 +55,10 @@ class VideoEnhancerSetting:
         self.create_widgets(root)
         self.dialog.deiconify()
 
+        # 可选：将窗口居中显示
+        self.dialog.lift()  # 将窗口置于所有窗口之上
+        self.dialog.focus_set()  # 再次确保焦点设置
+
     def hideUI(self):
         self.dialog.withdraw()
 
@@ -63,6 +67,10 @@ class VideoEnhancerSetting:
         self.dialog = tk.Toplevel(root)
         self.dialog.title("设置")
         self.dialog.resizable(True, True)
+
+        # 绑定 <Escape> 事件到子窗口
+        # 当在这个子窗口上按下 Esc 键时，会调用 close_window 函数
+        self.dialog.bind("<Escape>", lambda *args: self.dialog.destroy())
 
         # 2. 设置子窗口大小
         sub_w, sub_h = 800, 400
@@ -113,6 +121,17 @@ class VideoEnhancerSetting:
         )
         self.model_combo.pack(side=tk.RIGHT)
 
+        # 模型用途说明
+        self.model_description_label = tk.Label(
+            model_frame,
+            text="通用动漫视频增强模型",
+            font=("Arial", 8),
+            fg="gray",
+            wraplength=700,
+            justify="left",
+        )
+        self.model_description_label.pack(anchor=tk.W, side=tk.RIGHT)
+
         # 缩放因子
         scale_frame = tk.Frame(self.params_frame)
         scale_frame.pack(fill=tk.X, padx=10, pady=5)
@@ -128,17 +147,6 @@ class VideoEnhancerSetting:
             width=25,
         )
         self.scale_combo.pack(side=tk.RIGHT)
-
-        # 模型用途说明
-        self.model_description_label = tk.Label(
-            model_frame,
-            text="通用动漫视频增强模型",
-            font=("Arial", 8),
-            fg="gray",
-            wraplength=700,
-            justify="left",
-        )
-        self.model_description_label.pack(anchor=tk.W, side=tk.RIGHT)
 
         # thread count for load/proc/save
         thread_count_frame = tk.Frame(self.params_frame)

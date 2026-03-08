@@ -59,6 +59,10 @@ class VideoEnhancerApp:
         self.create_widgets()
         self.rfsh_tasks()
 
+        # 绑定 <Escape> 事件到子窗口
+        # 当在这个子窗口上按下 Esc 键时，会调用 close_window 函数
+        self.root.bind("<Escape>", self.on_esc)
+
         # 初始化路径
         self.init_paths()
 
@@ -79,6 +83,10 @@ class VideoEnhancerApp:
 
         if self.video_path_var.get():
             self.on_path_video_change()
+
+        # 可选：将窗口居中显示
+        self.root.lift()  # 将窗口置于所有窗口之上
+        self.root.focus_set()  # 再次确保焦点设置
 
     def gen_var(self, name, default=""):
         return self.setting.gen_var(name, default)
@@ -300,10 +308,10 @@ class VideoEnhancerApp:
 
         # 定义列标题和宽度
         self.task_treeview.heading("video_file", text="视频文件")
-        self.task_treeview.column("video_file", width=300, anchor=tk.W)
+        self.task_treeview.column("video_file", width=400, anchor=tk.W)
 
         self.task_treeview.heading("out_dir", text="输出目录")
-        self.task_treeview.column("out_dir", width=150, anchor=tk.W)
+        self.task_treeview.column("out_dir", width=100, anchor=tk.W)
 
         # 添加滚动条
         scrollbar = ttk.Scrollbar(
@@ -1186,6 +1194,10 @@ class VideoEnhancerApp:
                     break  # 找到满足条件的第一个（最低）Level 即可
 
         return str(target_level) if target_level is not None else None
+
+    def on_esc(self, *args):
+        if not self.is_running():
+            self.exit_application()
 
     def exit_application(self):
         """退出应用程序并结束所有进程"""
