@@ -1866,7 +1866,7 @@ class VideoEnhancerApp:
 
     def video_compress(self, video_path):
         self.log("开始视频压缩流程...")
-        video_compress.to_h265(video_path, self.video_out_var.get())
+        video_compress.to_h265(video_path, self.video_out_var.get(), use_gpu=True)
 
     def enhancement_process(self):
         """执行完整的增强流程"""
