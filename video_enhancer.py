@@ -154,7 +154,7 @@ class VideoEnhancerApp:
         step_frame.pack(fill=tk.X, padx=10, pady=5)
         tk.Label(step_frame, text="执行步骤:").pack(side=tk.LEFT)
 
-        self.step_var = self.gen_var(ProcStep.ALL)
+        self.step_var = self.gen_var(VideoSetting.ProcStep)
         self.step_combo = ttk.Combobox(
             step_frame,
             textvariable=self.step_var,
@@ -582,7 +582,7 @@ class VideoEnhancerApp:
         elif self.proc_state == ProcState.NEXT:
             self.proc_state = ProcState.STOP
             if self.show_task():
-                # self.step_var.set(VideoStep.ALL)
+                # self.step_var.set(ProcStep.ALL)
                 self.start_enhancement()
             else:
                 self.log("任务列表为空...")

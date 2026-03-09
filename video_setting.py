@@ -98,7 +98,7 @@ class VideoSettingDefault(StrEnum):
     CutHeadSec = "0"
     CutTailSec = "0"
     FpsForce = "0"
-    VideoStep = ProcStep.ALL
+    ProcStep = ProcStep.ALL
     ProcDone = ProcDone.NEXT
 
 
