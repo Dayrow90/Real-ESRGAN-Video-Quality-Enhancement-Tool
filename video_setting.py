@@ -43,6 +43,20 @@ class ProcStep(StrEnum):
         ]
 
 
+class ProcDone(StrEnum):
+    NEXT = "auto"
+    STOP = "stop"
+    EXIT = "exit"
+
+    @classmethod
+    def values(self):
+        return [
+            ProcDone.STOP,
+            ProcDone.NEXT,
+            ProcDone.EXIT,
+        ]
+
+
 class ProcModelDesc(StrEnum):
     ANIME_V3 = "通用动漫视频增强模型"
     X4PLUS = "通用视频增强模型，适用于各种类型的视频"
@@ -85,7 +99,7 @@ class VideoSettingDefault(StrEnum):
     CutTailSec = "0"
     FpsForce = "0"
     VideoStep = ProcStep.ALL
-    ProcDone = "auto"
+    ProcDone = ProcDone.NEXT
 
 
 class VideoSetting(StrEnum):
@@ -222,7 +236,7 @@ VideoSettingValues = {
     VideoSetting.CutTailSec: DefaultCutSecs(),
     VideoSetting.FpsForce: [],
     VideoSetting.ProcStep: ProcStep.values(),
-    VideoSetting.ProcDone: ["auto", "stop"],
+    VideoSetting.ProcDone: ProcDone.values(),
 }
 
 

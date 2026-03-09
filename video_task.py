@@ -108,7 +108,7 @@ class VideoEnhancerTaskBase:
         step_frame.pack(fill=tk.X, padx=10, pady=5)
         tk.Label(step_frame, text="执行步骤:").pack(side=tk.LEFT)
 
-        self.step_var = tk.StringVar(value=ProcStep.ALL)
+        self.step_var = self.gen_var(ProcStep.ALL)
         self.step_combo = ttk.Combobox(
             step_frame,
             textvariable=self.step_var,

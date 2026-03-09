@@ -17,8 +17,8 @@ import ffmpeg
 from moviepy import VideoFileClip
 from PIL import Image, ImageTk
 from enum import Enum
-from video_setting import VideoSetting, VideoEnhancerSetting, ProcStep
-from video_task import VideoEnhancerTaskCreate, VideoEnhancerTaskSetting
+from video_setting import *
+from video_task import *
 import video_compress, video_utils
 
 
@@ -79,7 +79,7 @@ class VideoEnhancerApp:
         self.entering_label = None
         self.img_video_cap = None
 
-        self.on_timer_enhance()
+        self.on_timer_minute()
 
         if self.video_path_var.get():
             self.on_path_video_change()
@@ -154,7 +154,7 @@ class VideoEnhancerApp:
         step_frame.pack(fill=tk.X, padx=10, pady=5)
         tk.Label(step_frame, text="执行步骤:").pack(side=tk.LEFT)
 
-        self.step_var = tk.StringVar(value=ProcStep.ALL)
+        self.step_var = self.gen_var(ProcStep.ALL)
         self.step_combo = ttk.Combobox(
             step_frame,
             textvariable=self.step_var,
@@ -384,7 +384,7 @@ class VideoEnhancerApp:
 
     def on_menu_task_next(self):
         self.proc_state = ProcState.NEXT
-        self.proc_done_var.set(VideoSetting.ProcDone.default())
+        self.proc_done_var.set(ProcDone.NEXT)
         self.log("将于1分钟内自动执行下一个任务...")
 
     def on_menu_task_clear(self):
@@ -572,8 +572,8 @@ class VideoEnhancerApp:
         os.makedirs(self.dir_capture, exist_ok=True)
         os.makedirs(self.dir_log, exist_ok=True)
 
-    def on_timer_enhance(self):
-        self.log_text.after(60000, self.on_timer_enhance)
+    def on_timer_minute(self):
+        self.log_text.after(60000, self.on_timer_minute)
 
         if self.proc_state == ProcState.FINISH:
             self.proc_state = ProcState.NEXT  # 等待1-2分钟再自动执行下一个任务
@@ -1866,7 +1866,7 @@ class VideoEnhancerApp:
 
     def video_compress(self, video_path):
         self.log("开始视频压缩流程...")
-        video_compress.video_compress_h265_nvenc(video_path, self.video_out_var.get())
+        video_compress.to_h265(video_path, self.video_out_var.get())
 
     def enhancement_process(self):
         """执行完整的增强流程"""
@@ -1942,9 +1942,12 @@ class VideoEnhancerApp:
                 return
 
             self.rfsh_tasks()
-            if self.proc_done_var.get() == "auto":
+            done = self.proc_done_var.get()
+            if done == ProcDone.Next:
                 self.proc_state = ProcState.FINISH
                 self.log(f"wait for {ProcState.NEXT}...")
+            elif done == ProcDone.EXIT:
+                self.exit_application()
 
         except Exception as e:
             messagebox.showerror("错误", f"处理过程中发生错误: {str(e)}")

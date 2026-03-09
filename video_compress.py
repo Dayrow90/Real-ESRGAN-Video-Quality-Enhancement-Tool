@@ -4,9 +4,7 @@ import os
 import subprocess
 
 
-def video_compress_h265_nvenc(
-    input_path, output_path, crf=22, preset="medium", use_gpu=False
-):
+def to_h265(input_path, output_path, crf=22, preset="medium", use_gpu=False):
     if not os.path.isfile(input_path):
         print(f"input_path not exist: {input_path}")
         return False
