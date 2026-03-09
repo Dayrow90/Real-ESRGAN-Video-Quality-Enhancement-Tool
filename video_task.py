@@ -634,4 +634,4 @@ class VideoEnhancerTaskSetting(VideoEnhancerTaskBase):
         self.setting.save()
         self.dialog.destroy()
         self.parent.rfsh_tasks()
-        self.log(f"创建任务: {task[VideoSetting.VideoPath]}")
+        self.log(f"保存任务: {task[VideoSetting.VideoPath]}")
