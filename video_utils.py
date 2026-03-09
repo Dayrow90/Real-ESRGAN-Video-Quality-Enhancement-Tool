@@ -11,10 +11,11 @@ class TeeTerminal:
         self.fn_write = fn_write
 
     def write(self, msg):
+        msg.strip()
         if msg == "":
             return
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-        self.terminal.write(f"[{timestamp}] {msg}")
+        self.terminal.write(f"[{timestamp}] {msg}\n")
         self.fn_write(msg)
 
     def flush(self):
