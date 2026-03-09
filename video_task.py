@@ -5,7 +5,7 @@ import tkinter as tk
 from tkinter import filedialog, ttk
 from moviepy import VideoFileClip
 from PIL import Image, ImageTk
-from video_setting import VideoSetting
+from video_setting import VideoSetting, ProcStep, ProcModel
 
 
 class VideoEnhancerTaskBase:
@@ -16,7 +16,7 @@ class VideoEnhancerTaskBase:
         self.dialog = None
         self.vars = {}
 
-    def gen_var(self, key, default=""):
+    def gen_var(self, key, default=None):
         var = self.vars.get(key)
         if not var:
             default = self.setting.get(key, default)
@@ -103,33 +103,56 @@ class VideoEnhancerTaskBase:
         )
         self.params_frame.pack(fill=tk.X, padx=20, pady=10)
 
+        # 执行步骤
+        step_frame = tk.Frame(self.params_frame)
+        step_frame.pack(fill=tk.X, padx=10, pady=5)
+        tk.Label(step_frame, text="执行步骤:").pack(side=tk.LEFT)
+
+        self.step_var = tk.StringVar(value=ProcStep.ALL)
+        self.step_combo = ttk.Combobox(
+            step_frame,
+            textvariable=self.step_var,
+            values=ProcStep.values(),
+            state="readonly",
+            width=25,
+        )
+        self.step_combo.pack(side=tk.RIGHT)
+
+        # 执行步骤说明
+        self.step_description_label = tk.Label(
+            step_frame,
+            text="",
+            font=("Arial", 8),
+            fg="gray",
+            wraplength=700,
+            justify="left",
+        )
+        self.step_description_label.pack(anchor=tk.W, side=tk.RIGHT)
+
+        # 绑定step选择事件
+        self.step_var.trace("w", self.on_step_change)
+        self.on_step_change()
+
         # 模型选择
         model_frame = tk.Frame(self.params_frame)
         model_frame.pack(fill=tk.X, padx=10, pady=5)
 
         tk.Label(model_frame, text="增强模型:").pack(side=tk.LEFT)
 
-        self.model_var = self.gen_var("model", "realesr-animevideov3")
+        self.model_var = self.gen_var(VideoSetting.Model)
         self.model_combo = ttk.Combobox(
             model_frame,
             textvariable=self.model_var,
-            values=[
-                "realesr-animevideov3",
-                "realesrgan-x4plus",
-                "realesrgan-x4plus-anime",
-            ],
+            values=ProcModel.values(),
             state="readonly",
             width=25,
         )
         self.model_combo.pack(side=tk.RIGHT)
 
-        # 绑定模型选择事件
-        self.model_var.trace("w", self.on_model_change)
-
         # 模型用途说明
         self.model_description_label = tk.Label(
             model_frame,
-            text="通用动漫视频增强模型",
+            text="",
             font=("Arial", 8),
             fg="gray",
             wraplength=700,
@@ -143,15 +166,19 @@ class VideoEnhancerTaskBase:
 
         tk.Label(scale_frame, text="缩放因子:").pack(side=tk.LEFT)
 
-        self.scale_var = self.gen_var(VideoSetting.Scale, "4")
+        self.scale_var = self.gen_var(VideoSetting.Scale)
         self.scale_combo = ttk.Combobox(
             scale_frame,
             textvariable=self.scale_var,
-            values=["2", "3", "4"],
+            values=VideoSetting.Scale.values(),
             state="readonly",
             width=25,
         )
         self.scale_combo.pack(side=tk.RIGHT)
+
+        # 绑定模型选择事件
+        self.model_var.trace("w", self.on_model_change)
+        self.on_model_change()
 
         # 输出格式
         format_frame = tk.Frame(self.params_frame)
@@ -159,11 +186,11 @@ class VideoEnhancerTaskBase:
 
         tk.Label(format_frame, text="输出格式:").pack(side=tk.LEFT)
 
-        self.format_var = self.gen_var("format", "png")
+        self.format_var = self.gen_var(VideoSetting.Format)
         self.format_combo = ttk.Combobox(
             format_frame,
             textvariable=self.format_var,
-            values=["jpg", "png"],
+            values=VideoSetting.Format.values(),
             state="readonly",
             width=25,
         )
@@ -175,28 +202,11 @@ class VideoEnhancerTaskBase:
 
         tk.Label(tile_size_frame, text="tile-size:").pack(side=tk.LEFT)
 
-        self.tile_size_var = self.gen_var("tile_size", "512")
+        self.tile_size_var = self.gen_var(VideoSetting.TileSize)
         self.tile_size_combo = ttk.Combobox(
             tile_size_frame,
             textvariable=self.tile_size_var,
-            values=[
-                "default",
-                "32",
-                "64",
-                "96",
-                "128",
-                "160",
-                "192",
-                "256",
-                "288",
-                "320",
-                "352",
-                "384",
-                "416",
-                "448",
-                "480",
-                "512",
-            ],
+            values=VideoSetting.TileSize.values(),
             state="readonly",
             width=25,
         )
@@ -208,27 +218,11 @@ class VideoEnhancerTaskBase:
 
         tk.Label(bit_rate_frame, text="b:v").pack(side=tk.LEFT)
 
-        self.bit_rate_var = self.gen_var("bit_rate", "45M")
+        self.bit_rate_var = self.gen_var(VideoSetting.BitRate)
         self.bit_rate_combo = ttk.Combobox(
             bit_rate_frame,
             textvariable=self.bit_rate_var,
-            values=[
-                "10M",
-                "15M",
-                "20M",
-                "25M",
-                "30M",
-                "35M",
-                "40M",
-                "45M",
-                "50M",
-                "55M",
-                "60M",
-                "65M",
-                "70M",
-                "75M",
-                "80M",
-            ],
+            values=VideoSetting.BitRate.values(),
             state="readonly",
             width=25,
         )
@@ -240,27 +234,11 @@ class VideoEnhancerTaskBase:
 
         tk.Label(max_rate_frame, text="max rate").pack(side=tk.LEFT)
 
-        self.max_rate_var = self.gen_var("max_rate", "55M")
+        self.max_rate_var = self.gen_var(VideoSetting.MaxRate)
         self.max_rate_combo = ttk.Combobox(
             max_rate_frame,
             textvariable=self.max_rate_var,
-            values=[
-                "10M",
-                "15M",
-                "20M",
-                "25M",
-                "30M",
-                "35M",
-                "40M",
-                "45M",
-                "50M",
-                "55M",
-                "60M",
-                "65M",
-                "70M",
-                "75M",
-                "80M",
-            ],
+            values=VideoSetting.MaxRate.values(),
             state="readonly",
             width=25,
         )
@@ -272,30 +250,29 @@ class VideoEnhancerTaskBase:
 
         tk.Label(fps_force_frame, text="fps force:").pack(side=tk.LEFT)
 
-        self.fps_force_var = self.gen_var("fps_force", 0)
+        self.fps_force_var = self.gen_var(VideoSetting.FpsForce)
         self.fps_force_spin = ttk.Spinbox(
             fps_force_frame,
             textvariable=self.fps_force_var,
             from_=0,
-            to=100,
+            to=300,
             increment=1,
             width=25,
         )
         self.fps_force_spin.pack(side=tk.RIGHT)
 
         # 裁剪开头N秒
-        self.cut_head_sec_var = self.gen_var(VideoSetting.CutHeadSec, "0")
+        self.cut_head_sec_var = self.gen_var(VideoSetting.CutHeadSec)
         cut_head_frame = tk.Frame(self.params_frame)
         cut_head_frame.pack(fill=tk.X, padx=10, pady=5)
-
-        secs = []
-        for i in range(180):
-            secs.append(str(i))
 
         self.cut_head_label = tk.Label(cut_head_frame, text="裁剪开头N秒:")
         self.cut_head_label.pack(side=tk.LEFT)
         self.cut_head_combo = ttk.Combobox(
-            cut_head_frame, textvariable=self.cut_head_sec_var, values=secs, width=25
+            cut_head_frame,
+            textvariable=self.cut_head_sec_var,
+            values=VideoSetting.CutHeadSec.values(),
+            width=25,
         )
         self.cut_head_combo.pack(side=tk.RIGHT)
 
@@ -303,11 +280,14 @@ class VideoEnhancerTaskBase:
         cut_tail_frame.pack(fill=tk.X, padx=10, pady=5)
 
         # 裁剪结尾N秒
-        self.cut_tail_sec_var = self.gen_var(VideoSetting.CutTailSec, "0")
+        self.cut_tail_sec_var = self.gen_var(VideoSetting.CutTailSec)
         self.cut_tail_label = tk.Label(cut_tail_frame, text="裁剪结尾N秒:")
         self.cut_tail_label.pack(side=tk.LEFT)
         self.cut_tail_combo = ttk.Combobox(
-            cut_tail_frame, textvariable=self.cut_tail_sec_var, values=secs, width=25
+            cut_tail_frame,
+            textvariable=self.cut_tail_sec_var,
+            values=VideoSetting.CutTailSec.values(),
+            width=25,
         )
         self.cut_tail_combo.pack(side=tk.RIGHT)
 
@@ -333,21 +313,18 @@ class VideoEnhancerTaskBase:
         self.entering_label = None
         self.img_video_cap = None
 
+    def on_step_change(self, *args):
+        """当模型选择改变时的处理函数"""
+        step = self.step_var.get()
+        text = ProcStep.desc(step)
+        self.step_description_label.config(text=text)
+
     def on_model_change(self, *args):
         """当模型选择改变时的处理函数"""
         selected_model = self.model_var.get()
+        self.model_description_label.config(text=ProcModel.desc(selected_model))
 
-        # 更新模型用途说明
-        model_descriptions = {
-            "realesr-animevideov3": "通用动漫视频增强模型",
-            "realesrgan-x4plus": "通用视频增强模型，适用于各种类型的视频",
-            "realesrgan-x4plus-anime": "专门针对动漫图像优化的增强模型",
-        }
-
-        description = model_descriptions.get(selected_model, "")
-        self.model_description_label.config(text=description)
-
-        if selected_model in ["realesrgan-x4plus", "realesrgan-x4plus-anime"]:
+        if selected_model in [ProcModel.X4PLUS, ProcModel.X4PLUS_ANIME]:
             # 固定缩放因子为4
             self.scale_var.set("4")
             # 禁用缩放因子选择

@@ -17,8 +17,9 @@ import ffmpeg
 from moviepy import VideoFileClip
 from PIL import Image, ImageTk
 from enum import Enum
-from video_setting import VideoSetting, VideoEnhancerSetting
+from video_setting import VideoSetting, VideoEnhancerSetting, ProcStep
 from video_task import VideoEnhancerTaskCreate, VideoEnhancerTaskSetting
+import video_compress, video_utils
 
 
 class ProcState(Enum):
@@ -66,7 +67,6 @@ class VideoEnhancerApp:
         # 初始化路径
         self.init_paths()
 
-        self.step_var.trace("w", self.on_step_change)
         self.video_path_var.trace("w", self.on_path_video_change)
 
         # --- 绑定事件 ---
@@ -88,7 +88,7 @@ class VideoEnhancerApp:
         self.root.lift()  # 将窗口置于所有窗口之上
         self.root.focus_set()  # 再次确保焦点设置
 
-    def gen_var(self, name, default=""):
+    def gen_var(self, name, default=None):
         return self.setting.gen_var(name, default)
 
     def create_widgets(self):
@@ -101,14 +101,14 @@ class VideoEnhancerApp:
         self.create_task_treeview()
         self.create_task_menu()
 
-        self.model_var = self.gen_var("model", "realesr-animevideov3")  # 模型选择
-        self.format_var = self.gen_var("format", "png")  # 输出格式
-        self.level_var = self.gen_var("level", "30")
-        self.tile_size_var = self.gen_var("tile_size", "512")
-        self.bit_rate_var = self.gen_var("bit_rate", "45M")
-        self.max_rate_var = self.gen_var("max_rate", "55M")
-        self.thread_count_var = self.gen_var("thread_count", "6:12:16")
-        self.fps_force_var = self.gen_var("fps_force", 0)
+        self.model_var = self.gen_var(VideoSetting.Model)
+        self.format_var = self.gen_var(VideoSetting.Format)
+        self.level_var = self.gen_var(VideoSetting.Level)
+        self.tile_size_var = self.gen_var(VideoSetting.TileSize)
+        self.bit_rate_var = self.gen_var(VideoSetting.BitRate)
+        self.max_rate_var = self.gen_var(VideoSetting.MaxRate)
+        self.thread_count_var = self.gen_var(VideoSetting.ThreadCount)
+        self.fps_force_var = self.gen_var(VideoSetting.FpsForce)
 
         # 参数设置框
         self.params_frame = tk.LabelFrame(
@@ -123,7 +123,7 @@ class VideoEnhancerApp:
 
         tk.Label(video_frame, text="视频文件:").pack(side=tk.LEFT)
 
-        self.video_path_var = self.gen_var("video_path")
+        self.video_path_var = self.gen_var(VideoSetting.VideoPath)
         tk.Entry(video_frame, textvariable=self.video_path_var, state="readonly").pack(
             side=tk.LEFT, fill=tk.X, expand=True
         )
@@ -139,7 +139,7 @@ class VideoEnhancerApp:
 
         tk.Label(video_out_frame, text="输出目录:").pack(side=tk.LEFT)
 
-        self.video_out_var = self.gen_var("video_out")
+        self.video_out_var = self.gen_var(VideoSetting.VideoOut)
         tk.Entry(
             video_out_frame, textvariable=self.video_out_var, state="readonly"
         ).pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -154,17 +154,11 @@ class VideoEnhancerApp:
         step_frame.pack(fill=tk.X, padx=10, pady=5)
         tk.Label(step_frame, text="执行步骤:").pack(side=tk.LEFT)
 
-        self.step_var = tk.StringVar(value="all")
+        self.step_var = tk.StringVar(value=ProcStep.ALL)
         self.step_combo = ttk.Combobox(
             step_frame,
             textvariable=self.step_var,
-            values=[
-                "all",  # 裁剪视频 -> 提取帧 -> 增强帧 -> 合并帧
-                "cut",  # 裁剪视频
-                "extract",  # 提取帧
-                "enhance",  # 增强帧
-                "merge",  # 合并帧
-            ],
+            values=ProcStep.values(),
             state="readonly",
             width=25,
         )
@@ -173,7 +167,7 @@ class VideoEnhancerApp:
         # 执行步骤说明
         self.step_description_label = tk.Label(
             step_frame,
-            text="裁剪视频 -> 提取帧 -> 增强帧 -> 合并帧",
+            text="",
             font=("Arial", 8),
             fg="gray",
             wraplength=700,
@@ -181,35 +175,37 @@ class VideoEnhancerApp:
         )
         self.step_description_label.pack(anchor=tk.W, side=tk.RIGHT)
 
+        self.step_var.trace("w", self.on_step_change)
+        self.on_step_change()
+
         # 缩放因子
         scale_frame = tk.Frame(self.params_frame)
         scale_frame.pack(fill=tk.X, padx=10, pady=5)
 
         tk.Label(scale_frame, text="缩放因子:").pack(side=tk.LEFT)
 
-        self.scale_var = self.gen_var("scale", "4")
+        self.scale_var = self.gen_var(VideoSetting.Scale)
         self.scale_combo = ttk.Combobox(
             scale_frame,
             textvariable=self.scale_var,
-            values=["2", "3", "4"],
+            values=VideoSetting.Scale.values(),
             state="readonly",
             width=25,
         )
         self.scale_combo.pack(side=tk.RIGHT)
 
         # 裁剪开头N秒
-        self.cut_head_sec_var = self.gen_var("cut_head_sec", "0")
+        self.cut_head_sec_var = self.gen_var(VideoSetting.CutHeadSec)
         cut_head_frame = tk.Frame(self.params_frame)
         cut_head_frame.pack(fill=tk.X, padx=10, pady=5)
-
-        secs = []
-        for i in range(180):
-            secs.append(str(i))
 
         self.cut_head_label = tk.Label(cut_head_frame, text="裁剪开头N秒:")
         self.cut_head_label.pack(side=tk.LEFT)
         self.cut_head_combo = ttk.Combobox(
-            cut_head_frame, textvariable=self.cut_head_sec_var, values=secs, width=25
+            cut_head_frame,
+            textvariable=self.cut_head_sec_var,
+            values=VideoSetting.CutHeadSec.values(),
+            width=25,
         )
         self.cut_head_combo.pack(side=tk.RIGHT)
 
@@ -217,11 +213,14 @@ class VideoEnhancerApp:
         cut_tail_frame = tk.Frame(self.params_frame)
         cut_tail_frame.pack(fill=tk.X, padx=10, pady=5)
 
-        self.cut_tail_sec_var = self.gen_var("cut_tail_sec", "0")
+        self.cut_tail_sec_var = self.gen_var(VideoSetting.CutTailSec)
         self.cut_tail_label = tk.Label(cut_tail_frame, text="裁剪结尾N秒:")
         self.cut_tail_label.pack(side=tk.LEFT)
         self.cut_tail_combo = ttk.Combobox(
-            cut_tail_frame, textvariable=self.cut_tail_sec_var, values=secs, width=25
+            cut_tail_frame,
+            textvariable=self.cut_tail_sec_var,
+            values=VideoSetting.CutTailSec.values(),
+            width=25,
         )
         self.cut_tail_combo.pack(side=tk.RIGHT)
 
@@ -238,22 +237,19 @@ class VideoEnhancerApp:
         self.img_video_cap_label.pack()
 
         # 自动下一个任务
-        auto_next_frame = tk.Frame(self.params_frame)
-        auto_next_frame.pack(fill=tk.X, padx=10, pady=5)
-        tk.Label(auto_next_frame, text="自动下一个任务:").pack(side=tk.LEFT)
+        proc_done_frame = tk.Frame(self.params_frame)
+        proc_done_frame.pack(fill=tk.X, padx=10, pady=5)
+        tk.Label(proc_done_frame, text="执行结束:").pack(side=tk.LEFT)
 
-        self.auto_next_var = self.gen_var("auto_next", "auto")
-        self.auto_next_combo = ttk.Combobox(
-            auto_next_frame,
-            textvariable=self.auto_next_var,
-            values=[
-                "auto",  # 自动下一个
-                "stop",  # 停止
-            ],
+        self.proc_done_var = self.gen_var(VideoSetting.ProcDone)
+        self.proc_done_combo = ttk.Combobox(
+            proc_done_frame,
+            textvariable=self.proc_done_var,
+            values=VideoSetting.ProcDone.values(),
             state="readonly",
             width=25,
         )
-        self.auto_next_combo.pack(side=tk.RIGHT)
+        self.proc_done_combo.pack(side=tk.RIGHT)
 
         # 日志框
         log_frame = tk.LabelFrame(self.root, text="日志")
@@ -388,7 +384,7 @@ class VideoEnhancerApp:
 
     def on_menu_task_next(self):
         self.proc_state = ProcState.NEXT
-        self.auto_next_var.set("auto")
+        self.proc_done_var.set(VideoSetting.ProcDone.default())
         self.log("将于1分钟内自动执行下一个任务...")
 
     def on_menu_task_clear(self):
@@ -562,6 +558,10 @@ class VideoEnhancerApp:
             self.dir_log, time.strftime("%Y-%m-%d", time.localtime()) + ".log"
         )
         self.log_file = open(self.log_path, "a+", encoding="utf-8")
+        if self.log_file:
+            # 重定向print
+            video_utils.redirect_std_err(self.log)
+            video_utils.redirect_std_out(self.log)
 
     def create_paths(self):
         # 创建必要的目录
@@ -582,7 +582,7 @@ class VideoEnhancerApp:
         elif self.proc_state == ProcState.NEXT:
             self.proc_state = ProcState.STOP
             if self.show_task():
-                self.step_var.set("all")
+                # self.step_var.set(VideoStep.ALL)
                 self.start_enhancement()
             else:
                 self.log("任务列表为空...")
@@ -598,19 +598,7 @@ class VideoEnhancerApp:
     def on_step_change(self, *args):
         """当模型选择改变时的处理函数"""
         step = self.step_var.get()
-        text = ""
-        if step == "all":
-            text = "裁剪视频 -> 提取帧 -> 增强帧 -> 合并帧"
-        elif step == "cut":
-            text = "裁剪视频"
-        elif step == "extract":
-            text = "提取帧"
-        elif step == "enhance":
-            text = "增强帧"
-        elif step == "merge":
-            text = "合并帧"
-
-        self.step_description_label.config(text=text)
+        self.step_description_label.config(text=ProcStep.desc(step))
 
     def on_path_video_change(self, *args):
         self.log("----------")
@@ -627,12 +615,12 @@ class VideoEnhancerApp:
 
         self.video_info = self.get_video_info(path)
         self.log(f"video_path: {path}")
-        self.log(f"video_info: {self.video_info }")
+        self.log(f"video_info: {self.video_info}")
 
         level = self.cal_video_level(self.video_info)
         level = level and str(int(float(level) * 10))
-        if level:
-            self.log(f"auto level: {level}")
+        self.log(f"cal_video_level: {level}")
+        if level in VideoSetting.Level.values():
             self.level_var.set(level)
 
     def on_enter_cut_head_label(self, *args):
@@ -1644,7 +1632,7 @@ class VideoEnhancerApp:
 
             # 获取原始视频的FPS
             # fps = self.get_video_fps(video_path)
-            fps = self.fps_force_var.get()
+            fps = float(self.fps_force_var.get())
             if fps <= 0:
                 fps = self.video_info["fps"]
                 total_sec = self.video_info["total_sec"]
@@ -1872,9 +1860,13 @@ class VideoEnhancerApp:
 
     def has_step(self, dst):
         step = self.step_var.get()
-        if step == "all":
+        if step == ProcStep.ALL:
             return True
         return step == dst
+
+    def video_compress(self, video_path):
+        self.log("开始视频压缩流程...")
+        video_compress.video_compress_h265_nvenc(video_path, self.video_out_var.get())
 
     def enhancement_process(self):
         """执行完整的增强流程"""
@@ -1896,9 +1888,13 @@ class VideoEnhancerApp:
             self.log("step: " + self.step_var.get())
             self.log("video_path: " + video_path)
 
+            if self.step_var.get() == ProcStep.COMPRESS:
+                self.video_compress(video_path)
+                return
+
             self.log("开始视频增强流程...")
 
-            if not self.has_step("cut"):
+            if not self.has_step(ProcStep.CUT):
                 pass
             elif not self.cut_video_ffmpeg(video_path):
                 return
@@ -1922,19 +1918,19 @@ class VideoEnhancerApp:
                     # self.on_path_video_change(None)
 
             # 步骤1: 提取帧
-            if not self.has_step("extract"):
+            if not self.has_step(ProcStep.EXTRACT):
                 pass
             elif not self.extract_frames(video_path):
                 return
 
             # 步骤2: 增强帧
-            if not self.has_step("enhance"):
+            if not self.has_step(ProcStep.ENHANCE):
                 pass
             elif not self.enhance_frames():
                 return
 
             # 步骤3: 合并帧
-            if not self.has_step("merge"):
+            if not self.has_step(ProcStep.MERGE):
                 pass
             elif not self.merge_frames(video_path):
                 return
@@ -1946,7 +1942,7 @@ class VideoEnhancerApp:
                 return
 
             self.rfsh_tasks()
-            if self.auto_next_var.get() == "auto":
+            if self.proc_done_var.get() == "auto":
                 self.proc_state = ProcState.FINISH
                 self.log(f"wait for {ProcState.NEXT}...")
 

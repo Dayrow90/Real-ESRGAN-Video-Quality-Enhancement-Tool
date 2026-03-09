@@ -7,6 +7,87 @@ from video_config import ConfigManager
 from functools import cmp_to_key
 
 
+class ProcStepDesc(StrEnum):
+    ALL = "裁剪视频 -> 提取帧 -> 增强帧 -> 合并帧"
+    CUT = "裁剪视频"
+    EXTRACT = "提取帧"
+    ENHANCE = "增强帧"
+    MERGE = "合并帧"
+    COMPRESS = "压缩视频"
+
+
+class ProcStep(StrEnum):
+    ALL = "all"
+    CUT = "cut"
+    EXTRACT = "extract"
+    ENHANCE = "enhance"
+    MERGE = "merge"
+    COMPRESS = "compress"
+
+    @classmethod
+    def desc(self, value):
+        for v in ProcStep:
+            if v.value == value:
+                return ProcStepDesc[v.name]
+        return value
+
+    @classmethod
+    def values(self):
+        return [
+            ProcStep.ALL,  # 裁剪视频 -> 提取帧 -> 增强帧 -> 合并帧
+            ProcStep.CUT,  # 裁剪视频
+            ProcStep.EXTRACT,  # 提取帧
+            ProcStep.ENHANCE,  # 增强帧
+            ProcStep.MERGE,  # 合并帧
+            ProcStep.COMPRESS,  # 压缩视频
+        ]
+
+
+class ProcModelDesc(StrEnum):
+    ANIME_V3 = "通用动漫视频增强模型"
+    X4PLUS = "通用视频增强模型，适用于各种类型的视频"
+    X4PLUS_ANIME = "专门针对动漫图像优化的增强模型"
+
+
+class ProcModel(StrEnum):
+    ANIME_V3 = "realesr-animevideov3"
+    X4PLUS = "realesrgan-x4plus"
+    X4PLUS_ANIME = "realesrgan-x4plus-anime"
+
+    @classmethod
+    def desc(self, value):
+        for v in ProcModel:
+            if v.value == value:
+                return ProcModelDesc[v.name]
+        return value
+
+    @classmethod
+    def values(self):
+        return [
+            ProcModel.ANIME_V3,
+            ProcModel.X4PLUS,
+            ProcModel.X4PLUS_ANIME,
+        ]
+
+
+class VideoSettingDefault(StrEnum):
+    VideoPath = ""
+    VideoOut = ""
+    Model = ProcModel.ANIME_V3
+    Scale = "4"
+    Format = "png"
+    Level = "51"
+    TileSize = "512"
+    ThreadCount = "6:12:16"
+    BitRate = "45M"
+    MaxRate = "55M"
+    CutHeadSec = "0"
+    CutTailSec = "0"
+    FpsForce = "0"
+    VideoStep = ProcStep.ALL
+    ProcDone = "auto"
+
+
 class VideoSetting(StrEnum):
     VideoPath = "video_path"
     VideoOut = "video_out"
@@ -21,7 +102,128 @@ class VideoSetting(StrEnum):
     CutHeadSec = "cut_head_sec"
     CutTailSec = "cut_tail_sec"
     FpsForce = "fps_force"
-    RunStep = "run_step"
+    ProcStep = "proc_step"
+    ProcDone = "proc_done"
+
+    @classmethod
+    def from_value(self, value):
+        for v in VideoSetting:
+            if v.value == value:
+                return v.name
+        return value
+
+    @classmethod
+    def default(self, value):
+        for v in VideoSetting:
+            if v.value == value:
+                return VideoSettingDefault[v.name]
+        return ""
+
+    def values(self):
+        global VideoSettingValues
+        return VideoSettingValues.get(self.value, [])
+
+
+def DefaultThreadCount():
+    rs = []
+    cores = ["2", "4", "6", "8", "10", "12", "14", "16"]
+    for _, load in enumerate(cores):
+        for _, proc in enumerate(cores):
+            for save in enumerate(cores):
+                rs.append(f"{load}:{proc}:{save}")
+    return rs
+
+
+def DefaultCutSecs():
+    rs = []
+    for i in range(300):
+        rs.append(str(i))
+    return rs
+
+
+VideoSettingValues = {
+    VideoSetting.VideoPath: [],
+    VideoSetting.VideoOut: [],
+    VideoSetting.Model: ProcModel.values(),
+    VideoSetting.Scale: ["2", "3", "4"],
+    VideoSetting.Format: ["jpg", "png"],
+    VideoSetting.Level: [
+        "10",
+        "11",
+        "12",
+        "13",
+        "20",
+        "21",
+        "22",
+        "30",
+        "31",
+        "32",
+        "40",
+        "41",
+        "42",
+        "50",
+        "51",
+        "52",
+    ],
+    VideoSetting.TileSize: [
+        "default",
+        "32",
+        "64",
+        "96",
+        "128",
+        "160",
+        "192",
+        "256",
+        "288",
+        "320",
+        "352",
+        "384",
+        "416",
+        "448",
+        "480",
+        "512",
+    ],
+    VideoSetting.ThreadCount: DefaultThreadCount(),
+    VideoSetting.BitRate: [
+        "10M",
+        "15M",
+        "20M",
+        "25M",
+        "30M",
+        "35M",
+        "40M",
+        "45M",
+        "50M",
+        "55M",
+        "60M",
+        "65M",
+        "70M",
+        "75M",
+        "80M",
+    ],
+    VideoSetting.MaxRate: [
+        "10M",
+        "15M",
+        "20M",
+        "25M",
+        "30M",
+        "35M",
+        "40M",
+        "45M",
+        "50M",
+        "55M",
+        "60M",
+        "65M",
+        "70M",
+        "75M",
+        "80M",
+    ],
+    VideoSetting.CutHeadSec: DefaultCutSecs(),
+    VideoSetting.CutTailSec: DefaultCutSecs(),
+    VideoSetting.FpsForce: [],
+    VideoSetting.ProcStep: ProcStep.values(),
+    VideoSetting.ProcDone: ["auto", "stop"],
+}
 
 
 class VideoEnhancerSetting:
@@ -31,9 +233,11 @@ class VideoEnhancerSetting:
         self.tasks = self.db.list_all_task()
         self.sort_tasks()
 
-    def gen_var(self, name, default=""):
+    def gen_var(self, name, default=None):
         var = self.vars.get(name)
         if var is None:
+            if default is None:
+                default = VideoSetting.default(name)
             var = self.new_var(self.db.get(name, default))
             self.vars[name] = var
         return var
@@ -44,7 +248,7 @@ class VideoEnhancerSetting:
             cls = tk.DoubleVar
         return cls(value=default)
 
-    def get(self, name, default=""):
+    def get(self, name, default=None):
         return self.gen_var(name, default).get()
 
     def save(self):
@@ -107,15 +311,11 @@ class VideoEnhancerSetting:
 
         tk.Label(model_frame, text="增强模型:").pack(side=tk.LEFT)
 
-        self.model_var = self.gen_var("model", "realesr-animevideov3")
+        self.model_var = self.gen_var(VideoSetting.Model, ProcModel.ANIME_V3)
         self.model_combo = ttk.Combobox(
             model_frame,
             textvariable=self.model_var,
-            values=[
-                "realesr-animevideov3",
-                "realesrgan-x4plus",
-                "realesrgan-x4plus-anime",
-            ],
+            values=ProcModel.values(),
             state="readonly",
             width=25,
         )
@@ -124,7 +324,7 @@ class VideoEnhancerSetting:
         # 模型用途说明
         self.model_description_label = tk.Label(
             model_frame,
-            text="通用动漫视频增强模型",
+            text="",
             font=("Arial", 8),
             fg="gray",
             wraplength=700,
@@ -138,15 +338,19 @@ class VideoEnhancerSetting:
 
         tk.Label(scale_frame, text="缩放因子:").pack(side=tk.LEFT)
 
-        self.scale_var = self.gen_var("scale", "4")
+        self.scale_var = self.gen_var(VideoSetting.Scale)
         self.scale_combo = ttk.Combobox(
             scale_frame,
             textvariable=self.scale_var,
-            values=["2", "3", "4"],
+            values=VideoSetting.Scale.values(),
             state="readonly",
             width=25,
         )
         self.scale_combo.pack(side=tk.RIGHT)
+
+        # 绑定模型选择事件
+        self.model_var.trace("w", self.on_model_change)
+        self.on_model_change()
 
         # thread count for load/proc/save
         thread_count_frame = tk.Frame(self.params_frame)
@@ -156,19 +360,11 @@ class VideoEnhancerSetting:
             side=tk.LEFT
         )
 
-        cores = ["2", "4", "6", "8", "10", "12", "14", "16"]
-        tcs = []
-        for _, load in enumerate(cores):
-            for _, proc in enumerate(cores):
-                for save in enumerate(cores):
-                    tcs.append(f"{load}:{proc}:{save}")
-
-        self.thread_count_var = self.gen_var("thread_count", "6:12:16")
+        self.thread_count_var = self.gen_var(VideoSetting.ThreadCount)
         self.thread_count_combo = ttk.Combobox(
             thread_count_frame,
             textvariable=self.thread_count_var,
-            #    values=["default", "2:2:2", "4:4:4", "4:8:10", "6:12:14"],
-            values=tcs,
+            values=VideoSetting.ThreadCount.values(),
             state="readonly",
             width=25,
         )
@@ -180,11 +376,11 @@ class VideoEnhancerSetting:
 
         tk.Label(format_frame, text="输出格式:").pack(side=tk.LEFT)
 
-        self.format_var = self.gen_var("format", "png")
+        self.format_var = self.gen_var(VideoSetting.Format)
         self.format_combo = ttk.Combobox(
             format_frame,
             textvariable=self.format_var,
-            values=["jpg", "png"],
+            values=VideoSetting.Format.values(),
             state="readonly",
             width=25,
         )
@@ -196,28 +392,11 @@ class VideoEnhancerSetting:
 
         tk.Label(tile_size_frame, text="tile-size:").pack(side=tk.LEFT)
 
-        self.tile_size_var = self.gen_var("tile_size", "512")
+        self.tile_size_var = self.gen_var(VideoSetting.TileSize)
         self.tile_size_combo = ttk.Combobox(
             tile_size_frame,
             textvariable=self.tile_size_var,
-            values=[
-                "default",
-                "32",
-                "64",
-                "96",
-                "128",
-                "160",
-                "192",
-                "256",
-                "288",
-                "320",
-                "352",
-                "384",
-                "416",
-                "448",
-                "480",
-                "512",
-            ],
+            values=VideoSetting.TileSize.values(),
             state="readonly",
             width=25,
         )
@@ -229,27 +408,11 @@ class VideoEnhancerSetting:
 
         tk.Label(bit_rate_frame, text="b:v").pack(side=tk.LEFT)
 
-        self.bit_rate_var = self.gen_var("bit_rate", "45M")
+        self.bit_rate_var = self.gen_var(VideoSetting.BitRate)
         self.bit_rate_combo = ttk.Combobox(
             bit_rate_frame,
             textvariable=self.bit_rate_var,
-            values=[
-                "10M",
-                "15M",
-                "20M",
-                "25M",
-                "30M",
-                "35M",
-                "40M",
-                "45M",
-                "50M",
-                "55M",
-                "60M",
-                "65M",
-                "70M",
-                "75M",
-                "80M",
-            ],
+            values=VideoSetting.BitRate.values(),
             state="readonly",
             width=25,
         )
@@ -261,27 +424,11 @@ class VideoEnhancerSetting:
 
         tk.Label(max_rate_frame, text="max rate").pack(side=tk.LEFT)
 
-        self.max_rate_var = self.gen_var("max_rate", "55M")
+        self.max_rate_var = self.gen_var(VideoSetting.MaxRate)
         self.max_rate_combo = ttk.Combobox(
             max_rate_frame,
             textvariable=self.max_rate_var,
-            values=[
-                "10M",
-                "15M",
-                "20M",
-                "25M",
-                "30M",
-                "35M",
-                "40M",
-                "45M",
-                "50M",
-                "55M",
-                "60M",
-                "65M",
-                "70M",
-                "75M",
-                "80M",
-            ],
+            values=VideoSetting.MaxRate.values(),
             state="readonly",
             width=25,
         )
@@ -293,7 +440,7 @@ class VideoEnhancerSetting:
 
         tk.Label(fps_force_frame, text="fps force:").pack(side=tk.LEFT)
 
-        self.fps_force_var = self.gen_var("fps_force", 0)
+        self.fps_force_var = self.gen_var(VideoSetting.FpsForce)
         self.fps_force_spin = ttk.Spinbox(
             fps_force_frame,
             textvariable=self.fps_force_var,
@@ -325,18 +472,9 @@ class VideoEnhancerSetting:
     def on_model_change(self, *args):
         """当模型选择改变时的处理函数"""
         selected_model = self.model_var.get()
+        self.model_description_label.config(text=ProcModel.desc(selected_model))
 
-        # 更新模型用途说明
-        model_descriptions = {
-            "realesr-animevideov3": "通用动漫视频增强模型",
-            "realesrgan-x4plus": "通用视频增强模型，适用于各种类型的视频",
-            "realesrgan-x4plus-anime": "专门针对动漫图像优化的增强模型",
-        }
-
-        description = model_descriptions.get(selected_model, "")
-        self.model_description_label.config(text=description)
-
-        if selected_model in ["realesrgan-x4plus", "realesrgan-x4plus-anime"]:
+        if selected_model in [ProcModel.X4PLUS, ProcModel.X4PLUS_ANIME]:
             # 固定缩放因子为4
             self.scale_var.set("4")
             # 禁用缩放因子选择
