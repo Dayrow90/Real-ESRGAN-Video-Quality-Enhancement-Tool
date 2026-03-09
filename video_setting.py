@@ -25,14 +25,14 @@ class ProcStep(StrEnum):
     COMPRESS = "compress"
 
     @classmethod
-    def desc(self, value):
+    def desc(cls, value):
         for v in ProcStep:
             if v.value == value:
                 return ProcStepDesc[v.name]
         return value
 
     @classmethod
-    def values(self):
+    def values(cls):
         return [
             ProcStep.ALL,  # 裁剪视频 -> 提取帧 -> 增强帧 -> 合并帧
             ProcStep.CUT,  # 裁剪视频
@@ -49,7 +49,7 @@ class ProcDone(StrEnum):
     EXIT = "exit"
 
     @classmethod
-    def values(self):
+    def values(cls):
         return [
             ProcDone.STOP,
             ProcDone.NEXT,
@@ -69,14 +69,14 @@ class ProcModel(StrEnum):
     X4PLUS_ANIME = "realesrgan-x4plus-anime"
 
     @classmethod
-    def desc(self, value):
+    def desc(cls, value):
         for v in ProcModel:
             if v.value == value:
                 return ProcModelDesc[v.name]
         return value
 
     @classmethod
-    def values(self):
+    def values(cls):
         return [
             ProcModel.ANIME_V3,
             ProcModel.X4PLUS,
@@ -120,14 +120,14 @@ class VideoSetting(StrEnum):
     ProcDone = "proc_done"
 
     @classmethod
-    def from_value(self, value):
+    def from_value(cls, value):
         for v in VideoSetting:
             if v.value == value:
                 return v.name
         return value
 
     @classmethod
-    def default(self, value):
+    def default(cls, value):
         for v in VideoSetting:
             if v.value == value:
                 return VideoSettingDefault[v.name]
@@ -143,7 +143,7 @@ def DefaultThreadCount():
     cores = ["2", "4", "6", "8", "10", "12", "14", "16"]
     for _, load in enumerate(cores):
         for _, proc in enumerate(cores):
-            for save in enumerate(cores):
+            for _, save in enumerate(cores):
                 rs.append(f"{load}:{proc}:{save}")
     return rs
 
@@ -246,6 +246,7 @@ class VideoEnhancerSetting:
         self.vars = {}
         self.tasks = self.db.list_all_task()
         self.sort_tasks()
+        self.showing = False
 
     def gen_var(self, name, default=None):
         var = self.vars.get(name)
@@ -270,15 +271,25 @@ class VideoEnhancerSetting:
             self.db.set(name, var.get())
 
     def showUI(self, root):
+        if self.showing:
+            return
+
         self.create_widgets(root)
         self.dialog.deiconify()
 
         # 可选：将窗口居中显示
         self.dialog.lift()  # 将窗口置于所有窗口之上
         self.dialog.focus_set()  # 再次确保焦点设置
+        self.showing = True
 
-    def hideUI(self):
-        self.dialog.withdraw()
+    def closeUI(self, *args):
+        if self.showing:
+            self.dialog.destroy()
+            self.showing = False
+
+    def save_close(self):
+        self.save()
+        self.closeUI()
 
     def create_widgets(self, root):
         # 创建顶级窗口 (Toplevel)
@@ -288,7 +299,8 @@ class VideoEnhancerSetting:
 
         # 绑定 <Escape> 事件到子窗口
         # 当在这个子窗口上按下 Esc 键时，会调用 close_window 函数
-        self.dialog.bind("<Escape>", lambda *args: self.dialog.destroy())
+        self.dialog.bind("<Escape>", self.closeUI)
+        self.dialog.protocol("WM_DELETE_WINDOW", self.closeUI)  # 监听窗口关闭事件
 
         # 2. 设置子窗口大小
         sub_w, sub_h = 800, 400
@@ -485,6 +497,9 @@ class VideoEnhancerSetting:
 
     def on_model_change(self, *args):
         """当模型选择改变时的处理函数"""
+        if not self.showing:
+            return
+
         selected_model = self.model_var.get()
         self.model_description_label.config(text=ProcModel.desc(selected_model))
 
@@ -496,10 +511,6 @@ class VideoEnhancerSetting:
         else:
             # 启用缩放因子选择
             self.scale_combo.config(state="readonly")
-
-    def save_close(self):
-        self.save()
-        self.dialog.destroy()
 
     def set_task(self, task):
         video_path = task[VideoSetting.VideoPath]

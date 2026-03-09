@@ -30,6 +30,7 @@ class ProcState(Enum):
     MERGE = 4
     FINISH = 5
     NEXT = 6
+    COMPRESS = 7
 
 
 class VideoEnhancerApp:
@@ -259,13 +260,6 @@ class VideoEnhancerApp:
             log_frame, height=6, state="disabled"
         )  # 减小高度
         self.log_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-
-        # 日志操作按钮
-        # log_button_frame = tk.Frame(log_frame)
-        # log_button_frame.pack(fill=tk.X, padx=5, pady=5)
-
-        # tk.Button(log_button_frame, text="清空日志", command=self.clear_log).pack(side=tk.RIGHT)
-        # tk.Button(log_button_frame, text="复制日志", command=self.copy_log).pack(side=tk.RIGHT, padx=5)
 
         # 控制按钮
         button_frame = tk.Frame(self.root)
@@ -1253,20 +1247,6 @@ class VideoEnhancerApp:
             self.log_file.write(log_message + "\n")
             self.log_file.flush()
 
-    def clear_log(self):
-        """清空日志"""
-        self.log_messages = []
-        self.log_text.config(state="normal")
-        self.log_text.delete(1.0, tk.END)
-        self.log_text.config(state="disabled")
-
-    def copy_log(self):
-        """复制日志到剪贴板"""
-        log_content = "\n".join(self.log_messages)
-        self.root.clipboard_clear()
-        self.root.clipboard_append(log_content)
-        messagebox.showinfo("提示", "日志已复制到剪贴板")
-
     def path_ffmpeg(self):
         return "ffmpeg.exe"
         # return os.path.join(self.project_root, "ffmpeg.exe")
@@ -1866,7 +1846,10 @@ class VideoEnhancerApp:
 
     def video_compress(self, video_path):
         self.log("开始视频压缩流程...")
-        video_compress.to_h265(video_path, self.video_out_var.get(), use_gpu=True)
+        self.proc_state = ProcState.COMPRESS
+        return video_compress.to_h265(
+            video_path, self.video_out_var.get(), use_gpu=True
+        )
 
     def enhancement_process(self):
         """执行完整的增强流程"""
@@ -1889,7 +1872,8 @@ class VideoEnhancerApp:
             self.log("video_path: " + video_path)
 
             if self.step_var.get() == ProcStep.COMPRESS:
-                self.video_compress(video_path)
+                if self.video_compress(video_path):
+                    self.proc_state = ProcState.FINISH
                 return
 
             self.log("开始视频增强流程...")
@@ -1937,17 +1921,7 @@ class VideoEnhancerApp:
 
             # 完成
             self.log("视频增强流程完成")
-
-            if not self.setting.delete_task(self.video_path_var.get()):
-                return
-
-            self.rfsh_tasks()
-            done = self.proc_done_var.get()
-            if done == ProcDone.Next:
-                self.proc_state = ProcState.FINISH
-                self.log(f"wait for {ProcState.NEXT}...")
-            elif done == ProcDone.EXIT:
-                self.exit_application()
+            self.proc_state = ProcState.FINISH
 
         except Exception as e:
             messagebox.showerror("错误", f"处理过程中发生错误: {str(e)}")
@@ -1958,14 +1932,24 @@ class VideoEnhancerApp:
             self.browse_video_button.config(state="normal")
             self.browse_video_out_button.config(state="normal")
 
-            if self.proc_state != ProcState.FINISH:
-                self.proc_state = ProcState.STOP
-
             if self.scale_fix_lower and self.scale_var.get() == "2":
                 scale = self.scale_var.get()
                 self.log(f"scale({scale}) fix to 4...")
                 self.scale_var.set("4")
                 self.scale_fix_lower = None
+
+            if self.proc_state != ProcState.FINISH:
+                pass
+            elif self.setting.delete_task(self.video_path_var.get()):
+                self.rfsh_tasks()
+                done = self.proc_done_var.get()
+                if done == ProcDone.NEXT:
+                    self.log(f"wait for {ProcState.NEXT}...")
+                    return
+                elif done == ProcDone.EXIT:
+                    self.exit_application()
+                    return
+            self.proc_state = ProcState.STOP
 
     def start_enhancement(self):
         """开始增强过程"""
