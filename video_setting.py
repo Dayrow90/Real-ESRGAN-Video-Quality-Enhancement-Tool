@@ -90,7 +90,7 @@ class VideoSettingDefault(StrEnum):
     Model = ProcModel.ANIME_V3
     Scale = "4"
     Format = "png"
-    Level = "51"
+    Level = "5.1"
     TileSize = "512"
     ThreadCount = "6:12:16"
     BitRate = "45M"
@@ -100,6 +100,9 @@ class VideoSettingDefault(StrEnum):
     FpsForce = "0"
     ProcStep = ProcStep.ALL
     ProcDone = ProcDone.NEXT
+
+
+VideoSettingValues = {}
 
 
 class VideoSetting(StrEnum):
@@ -162,22 +165,22 @@ VideoSettingValues = {
     VideoSetting.Scale: ["2", "3", "4"],
     VideoSetting.Format: ["jpg", "png"],
     VideoSetting.Level: [
-        "10",
-        "11",
-        "12",
-        "13",
-        "20",
-        "21",
-        "22",
-        "30",
-        "31",
-        "32",
-        "40",
-        "41",
-        "42",
-        "50",
-        "51",
-        "52",
+        "1.0",
+        "1.1",
+        "1.2",
+        "1.3",
+        "2.0",
+        "2.1",
+        "2.2",
+        "3.0",
+        "3.1",
+        "3.2",
+        "4.0",
+        "4.1",
+        "4.2",
+        "5.0",
+        "5.1",
+        "5.2",
     ],
     VideoSetting.TileSize: [
         "default",
@@ -253,7 +256,14 @@ class VideoEnhancerSetting:
         if var is None:
             if default is None:
                 default = VideoSetting.default(name)
-            var = self.new_var(self.db.get(name, default))
+
+            value = self.db.get(name, default)
+            if value != default:
+                values = VideoSettingValues.get() or []
+                if len(values) > 0 and value not in values:
+                    value = default
+
+            var = self.new_var(value)
             self.vars[name] = var
         return var
 

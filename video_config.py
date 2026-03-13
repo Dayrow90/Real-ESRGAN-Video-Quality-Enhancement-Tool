@@ -4,6 +4,7 @@ import json
 import os
 from contextlib import contextmanager
 
+
 class ConfigManager:
     """
     一个使用 SQLite 数据库来管理配置的类。
@@ -39,21 +40,25 @@ class ConfigManager:
         """
         with self.get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('''
+            cursor.execute(
+                """
                 CREATE TABLE IF NOT EXISTS config (
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
                 )
-            ''')
+            """
+            )
             conn.commit()
-            
+
             cursor = conn.cursor()
-            cursor.execute('''
+            cursor.execute(
+                """
                 CREATE TABLE IF NOT EXISTS task (
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
                 )
-            ''')
+            """
+            )
             conn.commit()
 
     def set(self, key: str, value):
@@ -69,7 +74,7 @@ class ConfigManager:
             cursor = conn.cursor()
             cursor.execute(
                 "INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)",
-                (key, serialized_value)
+                (key, serialized_value),
             )
             conn.commit()
 
@@ -90,7 +95,7 @@ class ConfigManager:
             row = cursor.fetchone()
             if row:
                 # 使用 json.loads 将存储的 JSON 字符串反序列化回 Python 对象
-                return json.loads(row['value'])
+                return json.loads(row["value"])
             else:
                 return default
 
@@ -118,7 +123,7 @@ class ConfigManager:
             cursor.execute("SELECT key, value FROM config")
             rows = cursor.fetchall()
             # 反序列化所有值
-            return [(row['key'], json.loads(row['value'])) for row in rows]
+            return [(row["key"], json.loads(row["value"])) for row in rows]
 
     def list_all_task(self):
         with self.get_db_connection() as conn:
@@ -126,15 +131,15 @@ class ConfigManager:
             cursor.execute("SELECT key, value FROM task")
             rows = cursor.fetchall()
             # 反序列化所有值
-            return [json.loads(row['value']) for row in rows]
-    
+            return [json.loads(row["value"]) for row in rows]
+
     def set_task(self, key, task):
         serialized_value = json.dumps(task)
         with self.get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "INSERT OR REPLACE INTO task (key, value) VALUES (?, ?)",
-                (key, serialized_value)
+                (key, serialized_value),
             )
             conn.commit()
 

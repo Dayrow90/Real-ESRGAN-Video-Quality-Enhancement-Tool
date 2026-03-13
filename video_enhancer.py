@@ -612,7 +612,7 @@ class VideoEnhancerApp:
         self.log(f"video_info: {self.video_info}")
 
         level = self.cal_video_level(self.video_info)
-        level = level and str(int(float(level) * 10))
+        level = level and str(float(level))
         self.log(f"cal_video_level: {level}")
         if level in VideoSetting.Level.values():
             self.level_var.set(level)
