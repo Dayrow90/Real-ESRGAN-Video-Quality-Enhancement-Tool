@@ -259,7 +259,7 @@ class VideoEnhancerSetting:
 
             value = self.db.get(name, default)
             if value != default:
-                values = VideoSettingValues.get() or []
+                values = VideoSettingValues.get(name) or []
                 if len(values) > 0 and value not in values:
                     value = default
 
