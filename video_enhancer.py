@@ -104,7 +104,6 @@ class VideoEnhancerApp:
 
         self.model_var = self.gen_var(VideoSetting.Model)
         self.format_var = self.gen_var(VideoSetting.Format)
-        self.level_var = self.gen_var(VideoSetting.Level)
         self.tile_size_var = self.gen_var(VideoSetting.TileSize)
         self.bit_rate_var = self.gen_var(VideoSetting.BitRate)
         self.max_rate_var = self.gen_var(VideoSetting.MaxRate)
@@ -611,12 +610,6 @@ class VideoEnhancerApp:
         self.log(f"video_path: {path}")
         self.log(f"video_info: {self.video_info}")
 
-        level = self.cal_video_level(self.video_info)
-        level = level and str(float(level))
-        self.log(f"cal_video_level: {level}")
-        if level in VideoSetting.Level.values():
-            self.level_var.set(level)
-
     def on_enter_cut_head_label(self, *args):
         """鼠标进入按钮时的处理函数"""
 
@@ -1111,72 +1104,6 @@ class VideoEnhancerApp:
         except Exception as e:
             print(f"分析视频时出错: {e}", file=sys.stderr)
             return None
-
-    def cal_video_level(self, info):
-        scale = int(self.scale_var.get())
-        height = info["height"] * scale
-        width = info["width"] * scale
-        fps = info["fps"]
-
-        """
-        根据分辨率和帧率计算满足要求的 H.264 最低 Level。
-
-        Args:
-            width (int): 视频宽度 (例如 1920)
-            height (int): 视频高度 (例如 1080)
-            fps (float): 视频帧率 (例如 30.0)
-
-        Returns:
-            str: 对应的 H.264 Level (例如 "4.0", "5.1") 或 None (如果超出支持范围)
-        """
-
-        # H.264 Level 表 (Main/High Profile)
-        # Level: (MaxMBPS, MaxFS, MaxDPB, MaxBR_kbps)
-        # MaxMBPS: 最大宏块处理速率 (宏块/秒)
-        # MaxFS: 最大帧大小 (宏块) - 用于计算最大分辨率
-        # MaxDPB: 最大解码图片缓存 (宏块) - 对播放设备缓存有要求
-        # MaxBR_kbps: 最大比特率 (kbps) - 此处未使用，仅为完整性展示
-
-        # 为了简化计算，我们主要关心 MaxMBPS 和 MaxFS
-        h264_levels = {
-            1: (1485, 99, 396, 64),
-            1.1: (3000, 396, 900, 192),
-            1.2: (6000, 396, 2376, 384),
-            1.3: (11880, 396, 2376, 768),
-            2: (11880, 396, 2376, 2000),
-            2.1: (19800, 792, 4752, 4000),
-            2.2: (20250, 1620, 8100, 4000),
-            3: (40500, 1620, 8100, 10000),
-            3.1: (108000, 3600, 18000, 14000),
-            3.2: (216000, 5120, 20480, 20000),
-            4: (245760, 8192, 32768, 20000),
-            4.1: (245760, 8192, 32768, 50000),
-            4.2: (522240, 8704, 34816, 50000),
-            5: (589824, 22080, 110400, 135000),
-            5.1: (983040, 36864, 184320, 240000),
-            5.2: (2228224, 36864, 184320, 240000),
-        }
-
-        # 1. 计算宏块数 (需要将宽高扩展到 16 的倍数)
-        padded_width = math.ceil(width / 16) * 16
-        padded_height = math.ceil(height / 16) * 16
-
-        macroblocks_per_frame = (padded_width // 16) * (padded_height // 16)
-
-        # 2. 计算宏块处理速率 (MaxMBPS)
-        max_mbps_required = macroblocks_per_frame * fps
-
-        # 3. 查找满足 MaxMBPS 要求的最低 Level
-        # 4. 同时验证该 Level 的 MaxFS (最大帧大小) 限制
-        target_level = None
-        for level_name, (max_mbps, max_fs, _, _) in sorted(h264_levels.items()):
-            if max_mbps >= max_mbps_required:
-                # 检查分辨率是否也满足 MaxFS 限制
-                if macroblocks_per_frame <= max_fs:
-                    target_level = level_name
-                    break  # 找到满足条件的第一个（最低）Level 即可
-
-        return str(target_level) if target_level is not None else None
 
     def on_esc(self, *args):
         if not self.is_running():
@@ -1697,10 +1624,6 @@ class VideoEnhancerApp:
                 self.max_rate_var.get(),
                 "-bufsize",
                 self.max_rate_var.get(),
-                # "-level", "3.0",  # 使用level 3.0提高兼容性
-                # "-level", "4.1",    # CUDA加速需要用更高的level
-                "-level",
-                self.level_var.get(),
                 "-movflags",
                 "+faststart",  # 优化文件结构以便快速开始播放
                 "-vf",
