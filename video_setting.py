@@ -2,9 +2,26 @@
 
 import tkinter as tk
 from tkinter import ttk
-from enum import StrEnum
+import enum
 from video_config import ConfigManager
 from functools import cmp_to_key
+
+
+class StrEnum(enum.StrEnum):
+
+    @classmethod
+    def from_value(cls, value):
+        for _, v in enumerate(cls):
+            if value == v.value:
+                return v.name
+        return ""
+
+    @classmethod
+    def values(cls):
+        rs = []
+        for _, v in enumerate(cls):
+            rs.append(v)
+        return rs
 
 
 class ProcStepDesc(StrEnum):
@@ -84,6 +101,112 @@ class ProcModel(StrEnum):
         ]
 
 
+"""
+-b:v
+| 分辨率            |   帧率 (fps)  | 推荐 `-b:v` (H.264)   | 推荐 `-b:v` (H.265/HEVC)  | 适用场景          |
+| :---              |   :---        | :---                  | :---                      | :---             |
+| 720p (1280x720)   |   30          | 2.5 ~ 4 Mbps          | 1.5 ~ 2.5 Mbps            | 手机观看/弱网     |
+| 720p              |   60          | 3.5 ~ 5 Mbps          | 2.5 ~ 3.5 Mbps            | 流畅游戏录屏      |
+| 1080p (1920x1080) |   30          | 4 ~ 6 Mbps            | 3 ~ 4.5 Mbps              | B站/YouTube 标准  |
+| 1080p             |   60          | 6 ~ 9 Mbps            | 4.5 ~ 6 Mbps              | 高帧率游戏/体育    |
+| 2K (2560x1440)    |   30/60       | 10 ~ 15 Mbps          | 6 ~ 10 Mbps               | 高清显示器        |
+| 4K (3840x2160)    |   30          | 20 ~ 25 Mbps          | 12 ~ 18 Mbps              | 电视/大屏         |
+| 4K                |   60          | 35 ~ 45 Mbps          | 20 ~ 30 Mbps              | 极致画质/蓝光压制  |
+
+"""
+
+"""
+-cq / -crf
+值越小 画质越好 压缩越小 文件越大
+值越大 画质越差 压缩更多 文件越小
+| 数值范围  | 画质描述                          | 文件大小              | 适用场景 |
+| :---      | :---                             | :---                 | :--- |
+| 0 - 10    | 视觉无损 / 近无损                 | 极大 (接近原始素材)    | 专业归档、后期制作中间片、极度强迫症 |
+| 11 - 15   | 极高画质                          | 很大                  | 蓝光原盘压制、收藏级视频 |
+| 16 - 18   | 视觉无损 (Visually Lossless)      | 大                    | 高质量存档推荐值。肉眼几乎看不出与原片的区别。 |
+| 19 - 23   | 优秀画质 (Standard High)          | 适中                  | 网络分发推荐值。B站、YouTube 上传的首选区间，画质好且体积合理。 |
+| 24 - 28   | 良好画质 (Good)                   | 较小                  | 手机观看、硬盘空间紧张时的折中方案。仔细看能发现轻微噪点或模糊。 |
+| 29 - 35   | 一般画质 (Acceptable)             | 小                    | 快速预览、低带宽流媒体、老旧设备播放。 |
+| 36 - 51   | 差 / 块状严重                     | 极小                  | 仅用于测试或极端受限环境，通常不可用。 |
+"""
+
+
+def VideoQualityDesc(value):
+    value = int(value)
+    if value <= 10:
+        return "近无损/文件极大 (接近原始素材)"
+    elif value <= 15:
+        return "极高画质/文件很大"
+    elif value <= 18:
+        return "视觉无损/文件大"
+    elif value <= 23:
+        return "优秀画质/文件适中"
+    elif value <= 28:
+        return "良好画质/文件较小"
+    elif value <= 35:
+        return "一般画质/文件小"
+    return "画质差/文件极小"
+
+
+"""
+| 等级 | 速度 | 压缩效率 (文件大小) | CPU 占用 | 适用场景 |
+| :--- | :--- | :--- | :--- | :--- |
+| ultrafast | ⚡️ 极快 | ❌ 最差 (文件巨大) | 低 | 直播推流 (必须)、实时录屏 (防止卡顿) |
+| superfast | 🚀 很快 | ❌ 差 | 低 | 对时间极度敏感的任务 |
+| veryfast | ⚡ 快 | ⚠️ 较差 | 中低 | NVENC 硬件编码的默认值、快速预览 |
+| faster | 🏃 较快 | 😐 一般 | 中 | 日常快速转码 |
+| fast | 🚶 快 | 😐 一般 | 中 | |
+| medium | 🐢 中等 | ✅ 平衡点 | 中高 | x264 的默认值。大多数人的最佳选择。 |
+| slow | 🐌 慢 | ✅ 好 | 高 | 追求高压缩率的首选。存档、发布视频。 |
+| slower | 🦥 很慢 | ✅ 很好 | 很高 | 极致压缩，时间充裕时使用。 |
+| veryslow | 🪨 极慢 | ✅ 极好 | 极高 | 只有当你需要节省每一 MB 空间时才用。 |
+| placebo | 💀 龟速 | ➖ 微乎其微的提升 | 爆表 | 不推荐。花费数倍时间，体积仅减少 1-2%，画质肉眼不可见区别。 |
+
+"""
+
+
+def VideoQualityValues():
+    rs = []
+    for i in range(52):
+        rs.append(str(i))
+    rs[0] = ""
+    return rs
+
+
+class VideoEncoderDesc(StrEnum):
+    Libx264 = "H.264/CPU"
+    Libx265 = "H.265/CPU"
+    Nv264 = "H.264/GPU"
+    Nv265 = "H.265/GPU"
+
+
+class VideoEncoder(StrEnum):
+    Libx264 = "libx264"
+    Libx265 = "libx265"
+    Nv264 = "h264_nvenc"
+    Nv265 = "hevc_nvenc"
+
+    def is_cpu(self):
+        if self.value in [VideoEncoder.Libx264, VideoEncoder.Libx265]:
+            return True
+        return False
+
+    @classmethod
+    def quality_args_name(cls, value):
+        name = cls.from_value(value)
+        elem = cls[name]
+        if elem.is_cpu():
+            return "-crf"
+        return "-cq"
+
+    @classmethod
+    def desc(cls, value):
+        for v in cls:
+            if v.value == value:
+                return VideoEncoderDesc[v.name]
+        return value
+
+
 class VideoSettingDefault(StrEnum):
     VideoPath = ""
     VideoOut = ""
@@ -93,13 +216,16 @@ class VideoSettingDefault(StrEnum):
     Level = "5.1"
     TileSize = "512"
     ThreadCount = "6:12:16"
-    BitRate = "45M"
-    MaxRate = "55M"
+    BitRate = ""
+    MaxRate = ""
     CutHeadSec = "0"
     CutTailSec = "0"
     FpsForce = "0"
     ProcStep = ProcStep.ALL
     ProcDone = ProcDone.NEXT
+    Quality = "18"
+    Encoder = VideoEncoder.Nv265
+    Preset = "medium"
 
 
 VideoSettingValues = {}
@@ -121,6 +247,9 @@ class VideoSetting(StrEnum):
     FpsForce = "fps_force"
     ProcStep = "proc_step"
     ProcDone = "proc_done"
+    Quality = "quality"
+    Encoder = "enc"
+    Preset = "preset"
 
     @classmethod
     def from_value(cls, value):
@@ -141,8 +270,8 @@ class VideoSetting(StrEnum):
         return VideoSettingValues.get(self.value, [])
 
 
-def DefaultThreadCount():
-    rs = []
+def ThreadCountValues():
+    rs = [""]
     cores = ["2", "4", "6", "8", "10", "12", "14", "16"]
     for _, load in enumerate(cores):
         for _, proc in enumerate(cores):
@@ -151,7 +280,7 @@ def DefaultThreadCount():
     return rs
 
 
-def DefaultCutSecs():
+def CutSecsValues():
     rs = []
     for i in range(300):
         rs.append(str(i))
@@ -183,7 +312,7 @@ VideoSettingValues = {
         "5.2",
     ],
     VideoSetting.TileSize: [
-        "default",
+        "",
         "32",
         "64",
         "96",
@@ -200,8 +329,9 @@ VideoSettingValues = {
         "480",
         "512",
     ],
-    VideoSetting.ThreadCount: DefaultThreadCount(),
+    VideoSetting.ThreadCount: ThreadCountValues(),
     VideoSetting.BitRate: [
+        "5M",
         "10M",
         "15M",
         "20M",
@@ -217,8 +347,12 @@ VideoSettingValues = {
         "70M",
         "75M",
         "80M",
+        "85M",
+        "90M",
+        "95M",
     ],
     VideoSetting.MaxRate: [
+        "5M",
         "10M",
         "15M",
         "20M",
@@ -234,12 +368,17 @@ VideoSettingValues = {
         "70M",
         "75M",
         "80M",
+        "85M",
+        "90M",
+        "95M",
     ],
-    VideoSetting.CutHeadSec: DefaultCutSecs(),
-    VideoSetting.CutTailSec: DefaultCutSecs(),
+    VideoSetting.CutHeadSec: CutSecsValues(),
+    VideoSetting.CutTailSec: CutSecsValues(),
     VideoSetting.FpsForce: [],
     VideoSetting.ProcStep: ProcStep.values(),
     VideoSetting.ProcDone: ProcDone.values(),
+    VideoSetting.Encoder: VideoEncoder.values(),
+    VideoSetting.Quality: VideoQualityValues(),
 }
 
 
@@ -313,7 +452,7 @@ class VideoEnhancerSetting:
         self.dialog.protocol("WM_DELETE_WINDOW", self.closeUI)  # 监听窗口关闭事件
 
         # 2. 设置子窗口大小
-        sub_w, sub_h = 800, 400
+        sub_w, sub_h = 800, 500
         self.dialog.minsize(sub_w, sub_h)  # 设置最小尺寸
 
         # 3. 获取主窗口位置和大小
@@ -438,6 +577,66 @@ class VideoEnhancerSetting:
         )
         self.tile_size_combo.pack(side=tk.RIGHT)
 
+        # 编码器
+        encoder_frame = tk.Frame(self.params_frame)
+        encoder_frame.pack(fill=tk.X, padx=10, pady=5)
+        tk.Label(encoder_frame, text="编码器:").pack(side=tk.LEFT)
+
+        self.encoder_var = self.gen_var(VideoSetting.Encoder)
+        self.encoder_combo = ttk.Combobox(
+            encoder_frame,
+            textvariable=self.encoder_var,
+            values=VideoEncoder.values(),
+            state="readonly",
+            width=25,
+        )
+        self.encoder_combo.pack(side=tk.RIGHT)
+
+        # 编码器说明
+        self.encoder_description_label = tk.Label(
+            encoder_frame,
+            text="",
+            font=("Arial", 8),
+            fg="gray",
+            wraplength=700,
+            justify="left",
+        )
+        self.encoder_description_label.pack(anchor=tk.W, side=tk.RIGHT)
+
+        # 绑定encoder选择事件
+        self.encoder_var.trace("w", self.on_encoder_change)
+        self.on_encoder_change()
+
+        # 视频质量
+        quality_frame = tk.Frame(self.params_frame)
+        quality_frame.pack(fill=tk.X, padx=10, pady=5)
+        tk.Label(quality_frame, text="视频质量:").pack(side=tk.LEFT)
+
+        self.quality_var = self.gen_var(VideoSetting.Quality)
+        self.quality_combo = ttk.Combobox(
+            quality_frame,
+            textvariable=self.quality_var,
+            values=VideoQualityValues(),
+            state="readonly",
+            width=25,
+        )
+        self.quality_combo.pack(side=tk.RIGHT)
+
+        # 视频质量说明
+        self.quality_description_label = tk.Label(
+            quality_frame,
+            text="",
+            font=("Arial", 8),
+            fg="gray",
+            wraplength=700,
+            justify="left",
+        )
+        self.quality_description_label.pack(anchor=tk.W, side=tk.RIGHT)
+
+        # 绑定quality选择事件
+        self.quality_var.trace("w", self.on_quality_change)
+        self.on_quality_change()
+
         # b:v
         bit_rate_frame = tk.Frame(self.params_frame)
         bit_rate_frame.pack(fill=tk.X, padx=10, pady=5)
@@ -521,6 +720,18 @@ class VideoEnhancerSetting:
         else:
             # 启用缩放因子选择
             self.scale_combo.config(state="readonly")
+
+    def on_encoder_change(self, *args):
+        """当编码器选择改变时的处理函数"""
+        encoder = self.encoder_var.get()
+        text = VideoEncoder.desc(encoder)
+        self.encoder_description_label.config(text=text)
+
+    def on_quality_change(self, *args):
+        """当视频质量选择改变时的处理函数"""
+        quality = self.quality_var.get()
+        text = VideoQualityDesc(quality)
+        self.quality_description_label.config(text=text)
 
     def set_task(self, task):
         video_path = task[VideoSetting.VideoPath]

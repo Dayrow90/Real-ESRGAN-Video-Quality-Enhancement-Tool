@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import logging
 import os
 import sys
 import re
@@ -91,6 +92,9 @@ class VideoEnhancerApp:
 
     def gen_var(self, name, default=None):
         return self.setting.gen_var(name, default)
+
+    def get(self, name, default=None):
+        return self.setting.get(name, default)
 
     def create_widgets(self):
         menubar = tk.Menu(self.root)
@@ -766,14 +770,18 @@ class VideoEnhancerApp:
                 self.img_video_cap = output_image_path
 
         except FileNotFoundError:
+            logging.exception(e)
             self.log(f"错误: 找不到视频文件 '{video_path}'")
         except ValueError as e:
+            logging.exception(e)
             self.log(f"错误: {e}")
         except ImportError:
+            logging.exception(e)
             self.log(
                 "错误: 未找到 'PIL' 或 'Pillow' 库。请运行 'pip install Pillow' 安装。"
             )
         except Exception as e:
+            logging.exception(e)
             self.log(f"发生了一个意外错误: {e}")
 
     def detect_video_framerate(self, video_path, threshold_ms=5.0, sample_limit=None):
@@ -862,6 +870,7 @@ class VideoEnhancerApp:
                 }
 
         except Exception as e:
+            logging.exception(e)
             self.log(f"分析视频时出错: {e}")
             return None
 
@@ -934,9 +943,11 @@ class VideoEnhancerApp:
             return pts_times
 
         except subprocess.CalledProcessError as e:
+            logging.exception(e)
             self.log(f"FFmpeg 命令执行失败: {e}")
             return None
         except FileNotFoundError:
+            logging.exception(e)
             self.log(
                 "错误: 未找到 'ffmpeg' 命令。请确保 FFmpeg 已安装并添加到系统 PATH 中。"
             )
@@ -1102,6 +1113,7 @@ class VideoEnhancerApp:
                 }
 
         except Exception as e:
+            logging.exception(e)
             print(f"分析视频时出错: {e}", file=sys.stderr)
             return None
 
@@ -1118,9 +1130,11 @@ class VideoEnhancerApp:
                 process.terminate()
                 process.wait(timeout=3)
             except subprocess.TimeoutExpired:
+                logging.exception(e)
                 # 如果进程没有响应，强制终止
                 process.kill()
             except Exception as e:
+                logging.exception(e)
                 self.log(f"终止进程时出错: {e}")
 
         # 查找并终止可能的残留进程
@@ -1141,6 +1155,7 @@ class VideoEnhancerApp:
                 except psutil.NoSuchProcess:
                     pass
         except Exception as e:
+            logging.exception(e)
             self.log(f"清理进程时出错: {e}")
 
         if self.log_file:
@@ -1280,6 +1295,7 @@ class VideoEnhancerApp:
             self.log("未检测到帧率信息，使用默认值 30 FPS")
             return 30.0  # 默认值
         except Exception as e:
+            logging.exception(e)
             self.log(f"获取帧率时出错: {e}，使用默认值 30 FPS")
             return 30.0
 
@@ -1356,6 +1372,7 @@ class VideoEnhancerApp:
             return True
 
         except Exception as e:
+            logging.exception(e)
             messagebox.showerror("错误", f"裁剪视频时出错: {str(e)}")
             self.log(f"裁剪视频时出错: {str(e)}")
             return False
@@ -1427,6 +1444,7 @@ class VideoEnhancerApp:
             )
             return True
         except Exception as e:
+            logging.exception(e)
             messagebox.showerror("错误", f"提取帧时出错: {str(e)}")
             self.log(f"提取帧时出错: {str(e)}")
             return False
@@ -1472,11 +1490,11 @@ class VideoEnhancerApp:
                 cmd.extend(["-g", "0"])  # 禁用GPU优化以提高兼容性
 
             # tile-size
-            if self.tile_size_var.get() != "default":
+            if self.tile_size_var.get() != "":
                 cmd.extend(["-t", self.tile_size_var.get()])
 
             # thread count for load/proc/save
-            if self.thread_count_var.get() != "default":
+            if self.thread_count_var.get() != "":
                 cmd.extend(["-j", self.thread_count_var.get()])
 
             # tta mode
@@ -1527,6 +1545,7 @@ class VideoEnhancerApp:
             self.log("视频帧增强完成")
             return True
         except Exception as e:
+            logging.exception(e)
             messagebox.showerror("错误", f"增强帧时出错: {str(e)}")
             self.log(f"增强帧时出错: {str(e)}")
             return False
@@ -1584,56 +1603,41 @@ class VideoEnhancerApp:
             #     "-bf", "0",  # 不使用B帧以提高兼容性
             #     output_video_path
             # ]
-            cmd = [
-                self.path_ffmpeg(),
-                "-hwaccel",
-                "cuda",  # 启用CUDA硬件加速
-                "-r",
-                str(fps),
-                "-i",
-                self.path_out_frames(),
-                "-i",
-                video_path,
-                "-map",
-                "0:v:0",
-                "-map",
-                "1:a:0",
-                "-c:a",
-                "aac",  # 使用AAC音频编码提高兼容性
-                # "-c:v", "libx264",
-                # '-c:v', 'h264_nvenc',         # 使用NVIDIA H.264编码器
-                # '-c:v', 'hevc_vaapi',         # 使用NVIDIA  H.265/HEVC (VAAPI)编码器
-                "-c:v",
-                "h264_nvenc",  # 使用NVIDIA H.264编码器
-                # "-preset", "fast",  # 使用快速编码预设
-                "-preset",
-                "p6",
-                # "-crf", "23",  # 视频质量控制
-                "-cq",
-                "15",  # h264_nvenc 不能用crf
-                "-r",
-                str(fps),
-                "-pix_fmt",
-                "yuv420p",
-                # "-profile:v", "baseline",  # 使用baseline profile提高兼容性
-                "-profile:v",
-                "high",
-                "-b:v",
-                self.bit_rate_var.get(),
-                "-maxrate",
-                self.max_rate_var.get(),
-                "-bufsize",
-                self.max_rate_var.get(),
-                "-movflags",
-                "+faststart",  # 优化文件结构以便快速开始播放
-                "-vf",
-                "scale=trunc(iw/2)*2:trunc(ih/2)*2",  # 确保宽高为偶数
-                "-g",
-                "30",  # GOP大小
-                "-bf",
-                "0",  # 不使用B帧以提高兼容性
-                output_video_path,
-            ]
+            cmd = [self.path_ffmpeg()]
+            cmd.extend(["-r", f"{fps:.2f}"])
+            cmd.extend(["-i", self.path_out_frames()])
+            cmd.extend(["-i", video_path])
+            cmd.extend(["-map", "0:v:0"])
+            cmd.extend(["-map", "1:a:0"])
+            cmd.extend(["-c:a", "aac"])  # 使用AAC音频编码提高兼容性
+
+            enc = self.get(VideoSetting.Encoder)
+            cmd.extend(["-c:v", enc])
+            cmd.extend(["-preset", self.get(VideoSetting.Preset)])
+            cmd.extend(
+                [
+                    VideoEncoder.quality_args_name(enc),
+                    self.get(VideoSetting.Quality),
+                ]
+            )
+            cmd.extend(["-r", f"{fps:.2f}"])
+            cmd.extend(["-pix_fmt", "yuv420p"])
+            cmd.extend(["-profile:v", "main"])
+
+            bit_rate = self.get(VideoSetting.BitRate)
+            if bit_rate and bit_rate != "":
+                cmd.extend(["-b:v", bit_rate])
+
+            max_rate = self.get(VideoSetting.MaxRate)
+            if max_rate and max_rate != "":
+                cmd.extend(["-maxrate", max_rate])
+                cmd.extend(["-bufsize", max_rate])
+
+            cmd.extend(["-movflags", "+faststart"])  # 优化文件结构以便快速开始播放
+            cmd.extend(["-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2"])  # 确保宽高为偶数
+            cmd.extend(["-g", str(math.ceil(fps * 2))])  # GOP大小
+            cmd.extend(["-bf", "3"])
+            cmd.append(output_video_path)
 
             self.log(" ".join(cmd))
             self.log("执行视频合并命令（带音频）...")
@@ -1757,6 +1761,7 @@ class VideoEnhancerApp:
             # messagebox.showinfo("完成", f"视频增强完成！输出文件已保存到:\n{output_video_path}")
             return True
         except Exception as e:
+            logging.exception(e)
             messagebox.showerror("错误", f"合并视频时出错: {str(e)}")
             self.log(f"合并视频时出错: {str(e)}")
             return False
@@ -1847,6 +1852,7 @@ class VideoEnhancerApp:
             self.proc_state = ProcState.FINISH
 
         except Exception as e:
+            logging.exception(e)
             messagebox.showerror("错误", f"处理过程中发生错误: {str(e)}")
             self.log(f"处理过程中发生错误: {str(e)}")
         finally:

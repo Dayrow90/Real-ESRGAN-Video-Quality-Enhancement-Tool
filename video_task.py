@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 
+from video_setting import VideoQualityDesc
+from video_setting import VideoEncoder
 import os
 import tkinter as tk
 from tkinter import filedialog, ttk
 from moviepy import VideoFileClip
 from PIL import Image, ImageTk
-from video_setting import VideoSetting, ProcStep, ProcModel
+from video_setting import *
 
 
 class VideoEnhancerTaskBase:
@@ -24,7 +26,7 @@ class VideoEnhancerTaskBase:
             self.vars[key] = var
         return var
 
-    def create_dialog(self, title, w=800, h=600):
+    def create_dialog(self, title, w=800, h=700):
         # 创建顶级窗口 (Toplevel)
         root = self.parent.root
         self.dialog = tk.Toplevel(root)
@@ -212,6 +214,66 @@ class VideoEnhancerTaskBase:
         )
         self.tile_size_combo.pack(side=tk.RIGHT)
 
+        # 编码器
+        encoder_frame = tk.Frame(self.params_frame)
+        encoder_frame.pack(fill=tk.X, padx=10, pady=5)
+        tk.Label(encoder_frame, text="编码器:").pack(side=tk.LEFT)
+
+        self.encoder_var = self.gen_var(VideoSetting.Encoder)
+        self.encoder_combo = ttk.Combobox(
+            encoder_frame,
+            textvariable=self.encoder_var,
+            values=VideoEncoder.values(),
+            state="readonly",
+            width=25,
+        )
+        self.encoder_combo.pack(side=tk.RIGHT)
+
+        # 编码器说明
+        self.encoder_description_label = tk.Label(
+            encoder_frame,
+            text="",
+            font=("Arial", 8),
+            fg="gray",
+            wraplength=700,
+            justify="left",
+        )
+        self.encoder_description_label.pack(anchor=tk.W, side=tk.RIGHT)
+
+        # 绑定encoder选择事件
+        self.encoder_var.trace("w", self.on_encoder_change)
+        self.on_encoder_change()
+
+        # 视频质量
+        quality_frame = tk.Frame(self.params_frame)
+        quality_frame.pack(fill=tk.X, padx=10, pady=5)
+        tk.Label(quality_frame, text="视频质量:").pack(side=tk.LEFT)
+
+        self.quality_var = self.gen_var(VideoSetting.Quality)
+        self.quality_combo = ttk.Combobox(
+            quality_frame,
+            textvariable=self.quality_var,
+            values=VideoQualityValues(),
+            state="readonly",
+            width=25,
+        )
+        self.quality_combo.pack(side=tk.RIGHT)
+
+        # 视频质量说明
+        self.quality_description_label = tk.Label(
+            quality_frame,
+            text="",
+            font=("Arial", 8),
+            fg="gray",
+            wraplength=700,
+            justify="left",
+        )
+        self.quality_description_label.pack(anchor=tk.W, side=tk.RIGHT)
+
+        # 绑定quality选择事件
+        self.quality_var.trace("w", self.on_quality_change)
+        self.on_quality_change()
+
         # b:v
         bit_rate_frame = tk.Frame(self.params_frame)
         bit_rate_frame.pack(fill=tk.X, padx=10, pady=5)
@@ -332,6 +394,18 @@ class VideoEnhancerTaskBase:
         else:
             # 启用缩放因子选择
             self.scale_combo.config(state="readonly")
+
+    def on_encoder_change(self, *args):
+        """当编码器选择改变时的处理函数"""
+        encoder = self.encoder_var.get()
+        text = VideoEncoder.desc(encoder)
+        self.encoder_description_label.config(text=text)
+
+    def on_quality_change(self, *args):
+        """当视频质量选择改变时的处理函数"""
+        quality = self.quality_var.get()
+        text = VideoQualityDesc(quality)
+        self.quality_description_label.config(text=text)
 
     def on_enter_cut_head_label(self, *args):
         """鼠标进入按钮时的处理函数"""
